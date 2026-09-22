@@ -119,6 +119,35 @@ _LOANWORDS = {
 }
 RE_TAG = re.compile(r'\[[A-Z_]+(?::[^\]]*)?\]')
 
+# ── 中文 G2P（kokoro-v1.1-zh 專用）─────────────────────────────────────────
+# 背景：kokoro-v1.1-zh 的訓練 tokenization 是 misaki `version='1.1'` 前端產生的
+#       「注音符號 + 數字聲調」（ㄋㄧ2ㄏㄠ3）。若改用 espeak 的 IPA（ni2χˈɑu2），
+#       雖然字符都在模型詞彙裡（詞彙同時含 IPA 與注音），但音素分佈與訓練不符，
+#       念出來聲調會跑掉、聽感像別的方言（實測聽起來像粵語）。
+#       反過來用 misaki 預設版（IPA+箭頭 ↓↗↘→）也不行：那些箭頭符號不在詞彙內會被丟掉、
+#       聲調全失。唯 version='1.1' 與 ONNX 嵌入詞彙完全吻合（含 ZH_MAP 那批漢字）。
+_ZHG2P = None
+
+
+def _get_zhg2p():
+    """延遲載入 misaki v1.1 中文前端；失敗回 None（呼叫端降級 espeak，比整條引擎炸掉好）"""
+    global _ZHG2P
+    if _ZHG2P is None:
+        try:
+            from misaki import zh as _mzh
+            en_callable = None
+            try:
+                from misaki import en as _men
+                _en_g2p = _men.G2P()
+                en_callable = lambda w: (_en_g2p(w)[0] or "")   # 中英混說時的英文段
+            except Exception:
+                en_callable = None
+            _ZHG2P = _mzh.ZHG2P(version="1.1", en_callable=en_callable)
+        except Exception as e:
+            _log(f"[TTS Router] misaki v1.1 前端載入失敗，中文將降級 espeak cmn: {e}")
+            _ZHG2P = False   # 記住失敗，不要每次重試
+    return _ZHG2P or None
+
 
 def detect_language(text: str) -> str:
     """回傳 'ja' 或 'zh'（沿用原假名/漢字啟發式，中文語境優先）"""
@@ -169,9 +198,23 @@ def _synth_kokoro_sync(text: str) -> bytes:
     if not voice:
         raise RuntimeError("voices 檔內沒有可用聲線")
 
-    # espeak 語系代碼：中文是 cmn（普通話）不是 zh
-    espeak_lang = {"zh": "cmn", "ja": "ja", "en": "en-us"}.get(lang, "cmn")
-    samples, sr = k.create(text, voice=voice, speed=TTS_SPEED, lang=espeak_lang)
+    # 中文：走 misaki v1.1（注音+數字調），與 kokoro-v1.1-zh 訓練格式一致
+    g2p = _get_zhg2p() if lang == "zh" else None
+    if g2p is not None:
+        try:
+            phonemes, _ = g2p(text)
+        except Exception as e:
+            _log(f"[TTS Router] v1.1 G2P 失敗（{e}），降級 espeak cmn")
+            phonemes = None
+    else:
+        phonemes = None
+
+    if phonemes and phonemes.strip() and not phonemes.strip() == "?" * len(phonemes):
+        samples, sr = k.create(phonemes, voice=voice, speed=TTS_SPEED, lang="cmn", is_phonemes=True)
+    else:
+        # espeak 語系代碼：中文是 cmn（普通話）不是 zh；僅在 misaki 不可用時兜底
+        espeak_lang = {"zh": "cmn", "ja": "ja", "en": "en-us"}.get(lang, "cmn")
+        samples, sr = k.create(text, voice=voice, speed=TTS_SPEED, lang=espeak_lang)
     import numpy as np
     import soundfile as sf
     buf = io.BytesIO()

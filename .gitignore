@@ -29,6 +29,7 @@ data/last_vision_frame.jpg
 data/*.jpg
 services/data/
 run_v7.log
+subtitle.txt
 
 # --- large binaries / regenerable artifacts ---
 # Kokoro 模型檔請用 scripts 下載，不入庫（合計約 361MB）
