@@ -162,7 +162,10 @@ async def generate_song_vocal_dynamic(song_name: str) -> str:
             
         chunk_file = os.path.join(SONGS_DIR, f"temp_{safe_name}_{idx}.mp3")
         audio_written = False
-        if singing_voice == "zh-CN-XiaoyiNeural":
+        # 僅當本機真的有 GPT-SoVITS 安裝時才走曉伊本地聲線（否則直接跳過，避免每次唱
+        # 歌都白等一次失敗；合併邏輯是原始位元串接，必須是 MP3，故其餘情況交給 edge-tts）
+        _sovits_dir = os.getenv("GPT_SOVITS_DIR") or r"C:\Users\qiwai\GPT-SoVITS"
+        if singing_voice == "zh-CN-XiaoyiNeural" and os.path.isdir(_sovits_dir):
             try:
                 import local_xiaoyi_service
                 local_b = await local_xiaoyi_service.get_xiaoyi_audio_bytes(singing_line)
