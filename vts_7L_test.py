@@ -163,18 +163,6 @@ INTERACTIONS_TOOLS = [
     },
     {
         "type": "function",
-        "name": "execute_local_python_code",
-        "description": "在本地執行 Python 程式碼",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "code_string": {"type": "string", "description": "Python 程式碼字串"}
-            },
-            "required": ["code_string"]
-        }
-    },
-    {
-        "type": "function",
         "name": "generate_ai_image",
         "description": "繪製 AI 圖片",
         "parameters": {
@@ -2827,6 +2815,12 @@ def _run_subprocess_code(file_path: str, timeout: int = 3) -> str:
 
 async def execute_local_python_code(code_string: str) -> str:
     """在 7L 專屬的本機遊樂場 (7L_Playground) 儲存並執行 Python 程式碼"""
+    # 🛑 安全預設：關閉（直播場景等於「遠端可執行任意本機碼」，且 Web 控制台的
+    #    /api/tools/execute 也走這裡）。要恢復需顯式設環境變數 ALLOW_LOCAL_PYTHON_CODE=1。
+    if os.getenv("ALLOW_LOCAL_PYTHON_CODE", "0").strip().lower() not in ("1", "true", "yes"):
+        print("🛑 [安全攔截] execute_local_python_code 已停用（需 ALLOW_LOCAL_PYTHON_CODE=1 才開放）")
+        return ("安全限制：本機代碼執行功能目前已停用。"
+                "請改用現有工具達成需求（search_google / 鋼琴 / generate_ai_image / set_timer 等）。")
     print("\n💻 [Tool 調用] 7L 正在本機沙盒 (7L_Playground) 執行 Python 程式碼...")
     
     for pattern in DANGEROUS_CODE_PATTERNS:

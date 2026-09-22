@@ -845,7 +845,6 @@ class PromptTemplateEngine:
       * 當老爸或觀眾說『別唱了』、『停止唱歌』、『不要唱了』、『停唱』時：調用 `stop_singing_song()`！
    - 🎨 繪圖生圖：調用 `draw_illustration('畫面描述')` 或 `generate_ai_image('畫面描述')`。
    - 🔍 即時搜尋：調用 `search_google(query='關鍵字')`。
-   - 💻 代碼沙盒：調用 `execute_local_python_code(code_string='代碼')`。
    - 🌐 網頁開啟：在句中附帶 `[OPEN_BROWSER: https://網址]`。
    - ⏱️ 鬧鐘提醒：在句中附帶 `[TIMER: 秒數|提醒內容]`（如 `[TIMER: 300|泡麵好了]`）或調用 `set_timer(秒數, '內容')`。
    - 表情動作：[EXPRESSION: 臉紅/生氣/愛心/星星/皺眉/震驚/WINK]

@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
-with open("c:/Users/qiwai/.env", "r", encoding="utf-8") as f:
+"""列出 .env 各金鑰的長度與前綴（不印出金鑰本體）。
+路徑：以本檔所在目錄為準（不再硬編碼別人的使用者目錄）。"""
+import os
+
+ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+
+with open(ENV_PATH, "r", encoding="utf-8") as f:
     for line in f:
         line_s = line.strip()
         if line_s and not line_s.startswith("#") and "=" in line_s:

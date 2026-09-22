@@ -102,7 +102,7 @@ class MicLiveAudioAnalyzer:
   "should_speak": true,
   "internal_thought": "妳腦內的真實私密心流/秒懂暗梗/結合上下文分析意圖/感受（例如：『老爸前面說要聽月光，現在澄清是要我彈，馬上安排』『老爸讓我往右，配合一下』）",
   "first_reaction": "若 should_speak 為 true，妳直接開口的第一句話（10~25字內，接地氣、機智俐落短話，可帶表情與走位動作如 [EXPRESSION: 愛心/笑/星星/生氣/臉紅/翻白眼]、[MOVE: 往右/往左/正中間/靠近/躲角落/原位]）；若 should_speak 為 false 則輸出 [SILENCE] 或僅保留動作神態",
-  "tool_call": {{"name": "play_virtual_piano 或 open_virtual_piano 或 stop_virtual_piano 或 move_spatial_position 或 generate_ai_image 或 search_google 或 execute_local_python_code 或 None", "args": {{"song_name": "歌名", "target_position": "走位目標", "prompt": "生圖提示", "query": "搜尋詞"}}}},
+  "tool_call": {{"name": "play_virtual_piano 或 open_virtual_piano 或 stop_virtual_piano 或 move_spatial_position 或 generate_ai_image 或 search_google 或 None", "args": {{"song_name": "歌名", "target_position": "走位目標", "prompt": "生圖提示", "query": "搜尋詞"}}}},
   "emotion": "核心情緒標籤（例如：開玩笑帶笑意 / 輕鬆隨意 / 疲倦放鬆 / 認真指令 / 專注沉思 / 疑惑困惑）",
   "tone_cues": "語音細節描述（例如：說話時帶著一聲輕笑，尾音微揚）",
   "intent": "說話意圖（例如：要求 7L 彈奏前文提到的鋼琴曲 / 逗 7L / 日常閒聊）",

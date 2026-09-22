@@ -445,23 +445,6 @@ DEFAULT_TOOLS_CATALOG = [
                 "placeholder": "例如：Lemon, 勇者, 晴天"
             }
         ]
-    },
-    {
-        "name": "execute_local_python_code",
-        "category": "creative",
-        "category_name": "多模態創作",
-        "label": "執行本地 Python 程式碼",
-        "description": "在 7L 執行環境中執行自訂 Python 腳本並獲取執行輸出。",
-        "parameters": [
-            {
-                "name": "code_string",
-                "label": "Python 程式碼",
-                "type": "textarea",
-                "default": "print(f'✨ 7L 核心狀態良好，系統時間: {time.strftime(\"%H:%M:%S\")}')",
-                "required": True,
-                "placeholder": "輸入欲執行的 Python 程式碼片段..."
-            }
-        ]
     }
 ]
 
@@ -1326,6 +1309,9 @@ async def start_web_dashboard(
     await runner.setup()
 
     bind_port = port
+    # 🛡️ 安全預設只綁本機回環：控制台有重啟/關機/執行工具/清空記憶等危險端點，
+    #    綁 0.0.0.0 會讓同網段任何人操作。需要開放給其他機器時設 WEB_BIND_HOST=0.0.0.0。
+    BIND_HOST = (os.getenv("WEB_BIND_HOST") or "127.0.0.1").strip() or "127.0.0.1"
     global MAIN_EVENT_LOOP
     try:
         MAIN_EVENT_LOOP = asyncio.get_running_loop()
@@ -1334,7 +1320,7 @@ async def start_web_dashboard(
 
     for attempt in range(3):
         try:
-            site = web.TCPSite(runner, "0.0.0.0", bind_port)
+            site = web.TCPSite(runner, BIND_HOST, bind_port)
             await site.start()
             print(f"\n🌐 [7L Web 後台] 已成功在 http://127.0.0.1:{bind_port} 啟動！")
             print(f"👉 本機瀏覽器請開啟：http://localhost:{bind_port}\n")
@@ -1350,7 +1336,7 @@ async def start_web_dashboard(
                     # 自動切換備援連接埠 7861
                     bind_port = port + 1
                     try:
-                        site = web.TCPSite(runner, "0.0.0.0", bind_port)
+                        site = web.TCPSite(runner, BIND_HOST, bind_port)
                         await site.start()
                         print(f"\n🌐 [7L Web 後台] 連接埠 {port} 佔用，已自動切換至備援連接埠 http://127.0.0.1:{bind_port} 啟動！")
                         print(f"👉 本機瀏覽器請開啟：http://localhost:{bind_port}\n")
