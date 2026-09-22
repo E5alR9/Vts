@@ -123,9 +123,30 @@ def search_multi(queries: List[str], k: int = 4) -> List[Dict]:
     return sorted(seen.values(), key=lambda x: -x["score"])[:k]
 
 
-def rag_prompt_block(query: str, k: int = 3, min_score: float = 0.15) -> str:
-    """產生可直接拼進 system/user prompt 的【RAG 記憶檢索】段落；無命中回傳空字串。"""
-    hits = [h for h in search(query, k=k) if h["score"] >= min_score]
+def rag_prompt_block(query: str, k: int = 3, min_score: float = None) -> str:
+    """產生可直接拼進 system/user prompt 的【RAG 記憶檢索】段落；無命中回傳空字串。
+
+    關於門檻：中文短句的 bge 向量 cosine 壓得很扁（實測相關 0.65 / 亂碼 0.66 /
+    無關 0.48），單看分數無法區分相關性。因此這裡的 min_score 只用來擋掉
+    明顯離群的遠端片段，真正的取捨靠「取前 k 筆 + 去重 + 截斷長度」。
+    可用環境變數 RAG_MIN_SCORE 覆寫（預設 0.45）。
+    """
+    if min_score is None:
+        try:
+            min_score = float(os.getenv("RAG_MIN_SCORE") or "0.45")
+        except Exception:
+            min_score = 0.45
+    hits = [h for h in search(query, k=max(k, k * 2)) if h["score"] >= min_score]
+    # 同一段記憶常同時存在 unified_memory 與 dialogue_memory，去重避免 prompt 灌水
+    seen = set()
+    uniq = []
+    for h in hits:
+        key = re.sub(r"\s+", "", h["text"])[:80]
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(h)
+    hits = uniq[:k]
     if not hits:
         return ""
     lines = []
@@ -135,7 +156,7 @@ def rag_prompt_block(query: str, k: int = 3, min_score: float = 0.15) -> str:
         body = re.sub(r"\s+", " ", h["text"]).strip()[:300]
         lines.append(f"{i}. {body}{src_tag}")
     return (
-        "【RAG 記憶檢索（與本題最相關的過往記憶與知識，可引用但別生硬照唸）】\n"
+        "【RAG 記憶檢索（與本題最相近的過往記憶，僅供參考、可引用但別生硬照唸）】\n"
         + "\n".join(lines)
     )
 
