@@ -168,11 +168,12 @@ img.vision{width:100%;border-radius:8px;border:1px solid var(--line);background:
         </div>
       </div>
       <div>
-        <label>記憶容量上限</label>
+        <label>記憶容量上限（0 = 不限）</label>
         <div style="display:flex;gap:8px">
-          <input type="number" id="memCap" min="50" max="5000" step="50" value="500">
+          <input type="number" id="memCap" min="0" max="5000" step="50" value="0">
           <button onclick="saveCapacity()">套用</button>
         </div>
+        <div class="muted" id="memCapInfo" style="margin-top:6px">載入中…</div>
         <div class="muted" style="margin-top:8px">點「編輯」可直接改寫該筆內容；「刪除」會立即移除。</div>
       </div>
     </div>
@@ -407,6 +408,7 @@ async function loadMemory(quiet){
     MEM = j.memories || [];
     $("memCount").textContent = (j.count ?? MEM.length) + " 筆";
     renderMemories();
+    loadCapacityInfo();
     if(!quiet) toast("記憶已重新整理");
   }catch(e){ $("memList").innerHTML = `<div class="muted">載入失敗：${esc(e.message)}</div>`; }
 }
@@ -461,9 +463,21 @@ async function clearMemory(){
 }
 async function saveCapacity(){
   const n = parseInt($("memCap").value, 10);
-  if(!n || n<50) return toast("容量至少 50", true);
-  try{ await api("/api/memory/capacity","POST",{capacity:n}); toast("容量已設為 "+n); }
-  catch(e){ toast("設定失敗："+e.message, true); }
+  if(isNaN(n) || n < 0) return toast("容量需為 ≥0 的整數（0 = 不限）", true);
+  try{
+    await api("/api/memory/capacity","POST",{capacity:n});
+    toast(n === 0 ? "容量已設為不限" : ("容量已設為 " + n));
+    loadCapacityInfo();
+  }catch(e){ toast("設定失敗："+e.message, true); }
+}
+async function loadCapacityInfo(){
+  try{
+    const j = await api("/api/memory/capacity");
+    const cap = j.dialogue_capacity ?? 0;
+    $("memCap").value = cap;
+    $("memCapInfo").textContent =
+      `目前：${j.is_unlimited ? "不限" : cap+" 筆"} · 對話 ${j.dialogue_count} / 思緒 ${j.thought_count} / 總計 ${j.total_count}`;
+  }catch(e){ $("memCapInfo").textContent = "讀取失敗：" + e.message; }
 }
 
 /* ── 工具 ──────────────────────────────────────────── */
