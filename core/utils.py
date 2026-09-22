@@ -24,6 +24,15 @@ def speech_allowed(private: bool) -> bool:
         return True
     return (os.getenv("OPERATOR_SPEECH", "0") or "0").strip().lower() in ("1", "true", "yes")
 
+
+def operator_input_enabled() -> bool:
+    """操作者輸入通道（麥克風 STT / 鍵盤 / chat_input.txt / Web 打字）是否啟用。
+
+    預設**關閉**：直播輸入只接受 Twitch / YouTube Live 聊天室的觀眾留言。
+    要恢復操作者輸入：.env 設 OPERATOR_INPUT=1。
+    """
+    return (os.getenv("OPERATOR_INPUT", "0") or "0").strip().lower() in ("1", "true", "yes")
+
 # ⏱️ 7L 統一神經時間心跳中樞 (Unified Tick Engine: 1 Tick = 1 秒)
 SYSTEM_BOOT_TIME = time.time()
 LAST_INTERACTION_TIME = time.time()

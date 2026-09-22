@@ -59,6 +59,8 @@ from google.genai import types
 from services.piano_engine import get_piano_realtime_prompt
 from services.piano_engine import is_piano_active
 from services.tiktok_listener import tiktok_live_worker
+from services.twitch_listener import twitch_live_worker
+from services.youtube_live_listener import youtube_live_worker
 from services.auto_cover_pipeline import produce_and_sing_cover, stop_singing
 import services.web_dashboard as web_dash
 from PIL import BmpImagePlugin
@@ -457,7 +459,7 @@ if sys.platform == "win32":
 from core.utils import (
     log_print, sys_notify, get_current_time_string, get_unified_time_prompt,
     record_interaction_tick, get_silence_ticks, get_uptime_ticks, format_ticks_to_human,
-    speech_allowed
+    speech_allowed, operator_input_enabled
 )
 from core.db import *
 from core.live_timer_sensor import live_timer_hub
@@ -733,8 +735,19 @@ async def summarize_search_to_speech(query: str, search_raw: str, user_role_name
         return f"{user_role_name}，我幫你查到囉！大致上來說，{summary_core}。詳細內容我待會再幫你細看喔！"
     return f"{user_role_name}，我剛剛幫你查了，但搜尋到的內容有點繁雜，我待會再仔細整理跟你說！"
 
+# 🛡️ 觀眾側（caller_target="audience"）禁止呼叫的破壞性工具：防直播間彈幕 prompt injection
+_AUDIENCE_DENIED_TOOLS = frozenset({
+    "clear_all_memories", "update_cloud_knowledge", "set_sleep_mode",
+    "open_browser", "control_microphone",
+})
+
+
 async def execute_tool_dispatch(fn_name: str, fn_args: dict, caller_target: str = "", caller_user: str = "") -> str:
     """集中式工具調用派發器 (100% 執行底層動作，完全由 AI 自由發揮台詞，絕不硬塞罐頭文字)"""
+    # 🛡️ 觀眾不可觸發破壞性工具（清記憶/改人格/睡眠/開瀏覽器/麥克風）
+    if caller_target == "audience" and (fn_name or "").strip().lower() in _AUDIENCE_DENIED_TOOLS:
+        log_print(f"🛑 [工具權限] 拒絕觀眾側呼叫 {fn_name}（{caller_user}）")
+        return f"⛔ 權限不足：{fn_name} 僅限操作者使用"
     extracted_text = ""
     fn_name = (fn_name or "").strip().lower()
     fn_args = {k.lower(): v for k, v in fn_args.items()} if isinstance(fn_args, dict) else {}
@@ -6211,7 +6224,8 @@ def add_to_streamer_mind_board(user_display: str, unique_id: str, content: str, 
         speaker = "老爸"
         mem_target = "7L"
     else:
-        speaker = f"TikTok 觀眾「{user_display}」"
+        _platform = {"twitch": "Twitch", "youtube": "YouTube"}.get(source, "TikTok")
+        speaker = f"{_platform} 觀眾「{user_display}」"
         lower_c = (content or "").lower()
         is_addressed_to_7l = any(tag in lower_c for tag in ["7l", "@7l", "小7", "7寶", "草莓"])
         mem_target = "7L" if is_addressed_to_7l else "老爸/直播間"
@@ -7191,6 +7205,11 @@ async def chat_processor_worker(vts, input_queue):
             # 👑 軌道 1：老爸專屬全能主腦通道 (mic / text_file / console / web_console)
             # -------------------------------------------------------------
             if source in ["mic", "text_file", "console", "web_console"] or user_audio_b64:
+                # 🚫 操作者輸入通道預設停用：直播輸入只收 Twitch/YouTube Live 觀眾留言
+                if not operator_input_enabled():
+                    log_print(f"🚫 [輸入通道已停用] 忽略操作者輸入 ({source}): {str(user_input)[:60]}")
+                    input_queue.task_done()
+                    continue
                 log_print(f"📥 [老爸主腦通道] 收到輸入 ({source}): {user_input}")
                 
                 # 🎙️ 若 7L 目前正在回應觀眾，老爸開口/輸入時優先傾聽老爸，清空佇列中後續排隊的觀眾發話（不腰斬當前正在說的話）！
@@ -7233,9 +7252,9 @@ async def chat_processor_worker(vts, input_queue):
             # -------------------------------------------------------------
             # 📱 軌道 2：TikTok 直播專屬「記憶腦袋」滾動黑板 (tiktok / tiktok_gift)
             # -------------------------------------------------------------
-            elif source in ["tiktok", "tiktok_gift"]:
+            elif source in ["tiktok", "tiktok_gift", "twitch", "youtube"]:
                 # 提取觀眾用戶名與留言內容
-                m_aud = re.search(r'【TikTok (?:直播觀眾|官方提問箱|直播動態)\s*([^\】]*?)\s*(?:留言|送禮|動態|提問)?】[：:]\s*(.*)', user_input)
+                m_aud = re.search(r'【\w+ (?:直播觀眾|官方提問箱|直播動態)\s*([^\】]*?)\s*(?:留言|送禮|動態|提問)?】[：:]\s*(.*)', user_input)
                 if m_aud:
                     aud_u = m_aud.group(1).strip() or "直播觀眾"
                     aud_c = m_aud.group(2).strip()
@@ -8001,9 +8020,13 @@ async def main():
             log_print(f"⚠️ [TTS 預熱跳過]: {e}（首句會自動降級到備援引擎）")
     asyncio.create_task(asyncio.to_thread(_prewarm_tts))
     asyncio.create_task(mic_volume_worker())
-    asyncio.create_task(mic_worker(recognizer, input_queue))
-    asyncio.create_task(text_file_listener_worker(input_queue))
-    asyncio.create_task(console_keyboard_input_worker(input_queue))
+    # 🚫 操作者輸入預設停用（OPERATOR_INPUT=1 才開）：直播輸入只收聊天室觀眾留言
+    if operator_input_enabled():
+        asyncio.create_task(mic_worker(recognizer, input_queue))
+        asyncio.create_task(text_file_listener_worker(input_queue))
+        asyncio.create_task(console_keyboard_input_worker(input_queue))
+    else:
+        log_print("🚫 操作者輸入通道已停用（OPERATOR_INPUT=0）：麥克風/鍵盤/文字檔/Web 打字一律忽略")
     asyncio.create_task(screen_capture_worker())
     asyncio.create_task(chat_processor_worker(vts, input_queue))
     asyncio.create_task(streamer_mind_loop_worker(vts, input_queue))
@@ -8019,6 +8042,9 @@ async def main():
     asyncio.create_task(pe.piano_focus_udp_worker())
     asyncio.create_task(pe.piano_liveness_watchdog_worker())
     asyncio.create_task(tk_listener.tiktok_live_worker(input_queue))
+    # 📺 直播聊天室觀眾輸入（TWITCH_CHANNELS / YOUTUBE_LIVE_ID 有設才真正連線，未設僅提示）
+    asyncio.create_task(twitch_live_worker(input_queue))
+    asyncio.create_task(youtube_live_worker(input_queue))
     asyncio.create_task(pe.auto_restore_piano_state_on_startup())
     asyncio.create_task(live_timer_sensor_worker(vts, input_queue))
     async def safe_discord_runner():

@@ -26,6 +26,17 @@ echo.
 echo =========================================
 echo          7L AI VTuber 啟動中...
 echo =========================================
-python vts_7L_test.py
 
-pause
+:: 🛡️ Watchdog：V7 掃掉就自動重啟（5 秒退避）；建立 STOP_7L.flag 可停止重啟
+:RESTART_LOOP
+if exist "%~dp0STOP_7L.flag" (
+    del "%~dp0STOP_7L.flag"
+    echo [Watchdog] 偵測到 STOP_7L.flag，停止重啟。
+    pause
+    exit /b 0
+)
+python vts_7L_test.py
+echo.
+echo [Watchdog] V7 已退出 ^(%date% %time%^)。5 秒後自動重啟；建立 STOP_7L.flag 可阻止。
+timeout /t 5 /nobreak >nul
+goto RESTART_LOOP
