@@ -101,6 +101,13 @@ import warnings
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
+try:
+    # 🛡️ 用「本檔所在目錄」明確載入 .env：dotenv 的 find_dotenv() 是看 cwd，
+    #    只要從別處啟動（cwd ≠ 專案根）就會靜默載不到金鑰，
+    #    導致 GEMINI_KEYS / GROQ 金鑰 / Discord Token 全部變空卻不報錯。
+    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+except Exception:
+    pass
 import ctypes
 try:
     from tavily import TavilyClient

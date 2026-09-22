@@ -22,6 +22,11 @@ UNRESTRICTED_SAFETY_SETTINGS = [
 
 GEMINI_KEYS = [k.strip() for k in re.split(r'[\s,;]+', os.getenv("GEMINI_API_KEYS") or os.getenv("GEMINI_API_KEY") or "") if k.strip() and len(k.strip()) < 150]
 
+# ⚠️ 非死碼：vts_7L_test.py 會 from core.llm_engine import GROQ_CLIENTS，
+#    並在啟動時自行 append AsyncGroq 客戶端（vts L2016），其後 L698 的搜尋提煉
+#    第二防線會遍歷它。刪掉這個空 list 會讓 vts 直接 ImportError 起不來。
+GROQ_CLIENTS: List = []
+
 KEYS_AUDIENCE_LIVE = GEMINI_KEYS[0:6] if len(GEMINI_KEYS) >= 6 else GEMINI_KEYS
 KEYS_MIND_LIVE     = GEMINI_KEYS[24:30] if len(GEMINI_KEYS) >= 30 else (GEMINI_KEYS[18:24] if len(GEMINI_KEYS) >= 24 else GEMINI_KEYS)  # 🧠 心流 Live 串流專屬金鑰池（獨立通道，不搶觀眾哨兵資源）
 
