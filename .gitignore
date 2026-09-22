@@ -2,6 +2,7 @@
 .env
 6.env
 vts_token.txt
+vts_token.txt.bak
 
 # --- python ---
 __pycache__/
@@ -36,3 +37,9 @@ models/
 data/rag/
 # bat 依賴安裝完成旗標
 .deps_ok
+
+# vercel 轉發器
+.vercel/
+.env.local
+vercel-router/.vercel/
+vercel-router/.env.local
