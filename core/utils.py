@@ -1,9 +1,28 @@
+import os
 import shutil
 import time
 from datetime import datetime
 
 current_system_notification = ""
 notification_expire_time = 0.0
+
+
+def speech_allowed(private: bool) -> bool:
+    """這句回話是否允許『播出聲音』（直播對象控制的總閘門）。
+
+    private=True → 操作者私訊管道的回話（麥克風 / 鍵盤 / Web 控制台 / 文字檔 /
+    定時提醒 / 喚醒應答）：**預設不播出** —— 觀眾不該聽到 7L 對著空氣跟幕後的
+    操作者講話。回話仍會：寫入記憶、列印主控台、廣播到控制台事件流、
+    先前已套用的表情/計時器照舊生效（這裡只攔「播放」這一步）。
+
+    private=False → 觀眾看得到的管道（TikTok 聊天室含老爸的公開帳號、
+    proactive 主動發言、自主彈琴開場）一律播出。
+
+    要恢復舊行為（對操作者也開口）：設環境變數 OPERATOR_SPEECH=1
+    """
+    if not private:
+        return True
+    return (os.getenv("OPERATOR_SPEECH", "0") or "0").strip().lower() in ("1", "true", "yes")
 
 # ⏱️ 7L 統一神經時間心跳中樞 (Unified Tick Engine: 1 Tick = 1 秒)
 SYSTEM_BOOT_TIME = time.time()

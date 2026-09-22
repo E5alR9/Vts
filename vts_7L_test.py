@@ -456,7 +456,8 @@ if sys.platform == "win32":
 
 from core.utils import (
     log_print, sys_notify, get_current_time_string, get_unified_time_prompt,
-    record_interaction_tick, get_silence_ticks, get_uptime_ticks, format_ticks_to_human
+    record_interaction_tick, get_silence_ticks, get_uptime_ticks, format_ticks_to_human,
+    speech_allowed
 )
 from core.db import *
 from core.live_timer_sensor import live_timer_hub
@@ -5904,7 +5905,7 @@ async def autonomous_wander_worker():
                             ai_intro = await pe.generate_dynamic_piano_chatter(song_seed, is_radio=False)
                             if ai_intro:
                                 log_print(f"💬 [自主彈琴 AI 自由意志發話]: {ai_intro}")
-                                await speech_queue.put({"text": ai_intro, "target": "dad"})
+                                await speech_queue.put({"text": ai_intro, "target": "dad", "private": False})
                             else:
                                 log_print("🎹 [自主彈琴 AI 自由意志] 7L 決定優雅安靜入座，全神貫注為老爸演奏。")
                             await pe.play_virtual_piano(song_seed)
@@ -5939,14 +5940,34 @@ async def speech_queue_worker(vts, input_queue):
                 text = item.get("text", "")
                 target = item.get("target", "dad")
                 raw_actions_text = item.get("raw_text", "")
+                # 🔇 公開性：未顯式標註時，target=dad 視為操作者私訊（不播出）
+                private = bool(item.get("private", target == "dad"))
             else:
                 text = str(item)
                 target = "dad"
                 raw_actions_text = ""
+                private = True
                 
             if not text:
                 continue
             
+            # 🔇 只對觀眾發聲（依你的要求）：操作者私訊管道的回話不播出。
+            #    記憶/字幕前置處理/表情與計時器都已在此之前完成，這裡只攔「播放」；
+            #    同時清掉剛寫入的 OBS 字幕，避免觀眾看到一句沒被唸出來的話。
+            if not speech_allowed(private):
+                shown = raw_actions_text or text
+                log_print(f"🔇 [操作者回話·靜默] {shown}")
+                try:
+                    await asyncio.to_thread(update_subtitle, "")
+                except Exception:
+                    pass
+                try:
+                    import services.web_dashboard as _wd
+                    _wd.broadcast_event("dad_reply_silent", {"text": shown})
+                except Exception:
+                    pass
+                continue
+
             CURRENT_SPEAKING_TARGET = target
             current_ai_state = "TALKING"
             touch_interaction()
@@ -6878,7 +6899,10 @@ async def process_chat_message(vts, input_queue, user_input: str, user_audio_b64
             await asyncio.to_thread(update_subtitle, clean_spoken)
             record_bot_message(clean_spoken)
             log_print(f"💬 7L (主腦回覆): {clean_spoken} ({current_model_tag})")
-            await speech_queue.put({"text": clean_spoken, "target": "dad", "raw_text": bot_reply})
+            await speech_queue.put({"text": clean_spoken, "target": "dad", "raw_text": bot_reply,
+                                    # 公開聊天室（含老爸自己的帳號）發言 = 觀眾看得到 → 要出聲；
+                                    # mic/鍵盤/Web/文字檔 = 私訊 → 不播出
+                                    "private": not str(source).startswith("tiktok")})
             # 🌟 寫入全集中記憶中樞（確保主播看板與所有 API Key 即時掌握）
             append_to_unified_memory(speaker="7L", target=current_custom_name, content=clean_spoken, role="assistant", source="tts")
         
@@ -7704,7 +7728,8 @@ async def proactive_worker(vts, input_queue):
                     await asyncio.to_thread(update_subtitle, spoken)
                 log_print(f"💬 7L 自主發話: {spoken} ({current_model_tag})\n──────────────────────────────────────────\n")
                 
-                await speech_queue.put({"text": spoken, "target": "dad", "raw_text": bot_reply})
+                # 📣 主動發言是對「所有人」的（記憶也寫 target=所有人）→ 必須播出
+                await speech_queue.put({"text": spoken, "target": "dad", "raw_text": bot_reply, "private": False})
                 last_interaction_time = time.time() 
                 
                 # 🌟 寫入全集中記憶中樞
