@@ -9,6 +9,7 @@ aiohttp
 websockets
 pyvts                      # VTube Studio API
 python-dotenv
+TikTokLive                 # TikTok 直播間彈幕/禮物監聽（其依賴會帶入 EulerApiSdk）
 
 # ── LLM / AI ───────────────────────────────────────────────────
 groq                       # 文字主力（第一梯隊）
@@ -44,3 +45,5 @@ psutil
 transformers
 tzdata
 EulerApiSdk
+mido                       # 鋼琴模組（piano_engine 模組層無條件 import，缺了直接無法啟動）
+dxcam                      # 畫面截取（Gemini 視覺上下文）
