@@ -11,21 +11,54 @@
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.55 "Segoe UI","Microsoft JhengHei",system-ui,sans-serif}
-header{position:sticky;top:0;z-index:20;display:flex;gap:14px;align-items:center;flex-wrap:wrap;
-  padding:10px 16px;background:#0d1117f2;backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
-header h1{font-size:17px;margin:0;letter-spacing:.5px}
+header{position:sticky;top:0;z-index:50;display:flex;gap:10px;align-items:center;
+  flex-wrap:wrap;padding:9px 18px;background:rgba(13,17,23,.93);
+  backdrop-filter:blur(10px);border-bottom:1px solid var(--line);min-height:50px}
+header h1{font-size:16px;margin:0 6px 0 0;letter-spacing:.6px;white-space:nowrap}
 header h1 b{color:var(--acc)}
-.pill{display:inline-flex;gap:6px;align-items:center;padding:3px 10px;border:1px solid var(--line);
-  border-radius:999px;background:var(--panel);font-size:12px;color:var(--dim)}
+header h1 span{color:var(--dim);font-size:11px;font-weight:400;margin-left:6px;letter-spacing:0}
+.pill{display:inline-flex;gap:6px;align-items:center;padding:4px 10px;border:1px solid var(--line);
+  border-radius:999px;background:var(--panel);font-size:11.5px;color:var(--dim);
+  max-width:44ch;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+header .pill#stStatus{color:var(--txt)}
+header button{min-height:30px;padding:5px 13px;font-size:12.5px}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--bad);display:inline-block}
 .dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
-main{padding:16px;display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));align-items:start}
-section{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
-section.wide{grid-column:1/-1}
-h2{margin:0 0 10px;font-size:14px;color:var(--acc);display:flex;justify-content:space-between;align-items:center}
-h2 small{color:var(--dim);font-weight:400;font-size:11px}
-.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px}
-.kv div:nth-child(odd){color:var(--dim)}
+/* ── 版面：12 欄儀表板網格（依 id 指定跨度，行行對齊、不再孤兒卡片）── */
+main{padding:18px;display:grid;gap:16px;grid-template-columns:repeat(12,minmax(0,1fr));
+  max-width:1680px;margin:0 auto;align-items:start}
+section{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  padding:14px 16px;min-width:0;scroll-margin-top:72px}
+#secStatus{grid-column:span 5}  #secChat{grid-column:span 7}      /* 列1：狀態 + 對話 */
+#secTikTok{grid-column:span 4}  #secVision{grid-column:span 4}
+#secSwitches{grid-column:span 4}                                   /* 列2：平台/視覺/開關 */
+#secTools{grid-column:span 5}  #secMemory{grid-column:span 7}      /* 列3：工具 + 記憶 */
+#secPrompts{grid-column:span 7} #secMind{grid-column:span 5}       /* 列4：提示詞 + 心流 */
+#secEvents{grid-column:span 7}  #secDanger{grid-column:span 5}     /* 列5：事件 + 危險區 */
+/* 窄螢幕一律單欄 */
+@media(max-width:1180px){main>section{grid-column:span 12}}
+/* 卡片標題：底線分隔 + 右側輔助字 */
+h2{margin:0 0 10px;font-size:13.5px;color:var(--acc);display:flex;justify-content:space-between;
+  align-items:center;gap:8px;padding-bottom:8px;border-bottom:1px solid var(--line);letter-spacing:.3px}
+h2 small{color:var(--dim);font-weight:400;font-size:11px;text-align:right}
+/* 清單一律內部捲動，避免整頁被195 筆記憶撐爆 */
+#memList{max-height:360px;overflow:auto;padding-right:4px}
+#eventLog{max-height:300px;overflow:auto;padding-right:4px}
+#recentMsgs{max-height:240px;overflow:auto;padding-right:4px}
+#promptForm{max-height:430px;overflow:auto;padding-right:4px}
+#mindBoard{max-height:230px;overflow:auto;padding-right:4px}
+/* 捲軸樣式 */
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#2b3444;border-radius:6px;border:2px solid var(--panel)}
+::-webkit-scrollbar-thumb:hover{background:#3a465a}
+/* 危險區視覺區隔 */
+#secDanger{border-color:#4c2733;background:linear-gradient(180deg,#1b1216 0%,var(--panel) 60%)}
+#secDanger h2{color:#ff9d97;border-bottom-color:#4c2733}
+.kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 14px;font-size:12.5px;line-height:1.5}
+.kv div:nth-child(odd){color:var(--dim);white-space:nowrap}
+.kv div:nth-child(even){color:var(--txt);word-break:break-word;min-width:0;
+  display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
 .bar{height:7px;background:#0b0f14;border-radius:4px;overflow:hidden;border:1px solid var(--line)}
 .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),var(--ok));transition:width .4s}
 button{background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:8px;
@@ -116,6 +149,10 @@ img.vision{width:100%;border-radius:8px;border:1px solid var(--line);background:
     <div style="display:flex;gap:8px;margin-top:8px">
       <button class="primary" id="btnSend">送出給 7L</button>
       <button onclick="document.getElementById('chatText').value=''">清空</button>
+    </div>
+    <div id="chatDisabled" class="muted" style="display:none;margin-top:8px;color:var(--warn)">
+      🚫 操作者輸入通道已停用（.env 的 <code>OPERATOR_INPUT=0</code>）：此處送出的訊息會被忽略。
+      直播輸入只收 <b>Twitch / YouTube Live</b> 聊天室觀眾留言；要恢復把 OPERATOR_INPUT 改 1。
     </div>
     <label>最近對話（來源：記憶快照）</label>
     <div id="recentMsgs" class="muted">尚無資料</div>
@@ -272,6 +309,17 @@ function renderStatus(data){
   $("stressBar").style.width = Math.max(0, Math.min(100, Number(c.api_stress)||0)) + "%";
   $("btnMic").textContent = c.is_mic_enabled===false ? "開啟麥克風" : "關閉麥克風";
   $("btnSleep").textContent = c.is_sleeping ? "叫醒 7L" : "讓 7L 睡覺";
+
+  // 🚦 操作者輸入通道狀態：停用時把「送出」按鈕鎖起來並顯示提示（避免按了沒反應）
+  const _sf = data.system_flags || {};
+  const _opOn = _sf.operator_input === undefined ? true : !!_sf.operator_input;
+  const _note = $("chatDisabled");
+  if (_note) _note.style.display = _opOn ? "none" : "block";
+  const _sendBtn = $("btnSend");
+  if (_sendBtn) {
+    _sendBtn.disabled = !_opOn;
+    _sendBtn.title = _opOn ? "" : "操作者輸入通道已停用（.env 的 OPERATOR_INPUT=0）";
+  }
 
   const t = data.tiktok || {};
   $("kvTiktok").innerHTML = [

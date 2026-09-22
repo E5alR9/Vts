@@ -631,6 +631,11 @@ async def get_full_telemetry(include_full_memory: bool = False) -> Dict[str, Any
 
     return {
         "core": core_state,
+        # 🚦 系統開關旗標（前端用來提示：操作者輸入/發聲是否停用）
+        "system_flags": {
+            "operator_input": (os.getenv("OPERATOR_INPUT", "0") or "0").strip().lower() in ("1", "true", "yes"),
+            "operator_speech": (os.getenv("OPERATOR_SPEECH", "0") or "0").strip().lower() in ("1", "true", "yes"),
+        },
         "tiktok": {
             "is_streaming": is_streaming,
             "active_id": active_id,
