@@ -26,12 +26,15 @@ import asyncio
 from typing import Any, Dict, List, Optional
 
 # ── 模型梯隊（越前面越快；可用 GROQ_TEXT_MODELS 環境變數覆寫）────────────────
+# 實測本帳號 /models 只有 11 個，其中可自由對話的僅下列 4 個
+# （whisper-large-v3*、meta-llama/llama-prompt-guard-*、canopylabs/orpheus-*
+#   openai/gpt-oss-safeguard-20b 都不是聊天模型；原梯隊的 groq/compound[mini]
+#   在本帳號不存在，呼叫會直接 404，已移除）
 DEFAULT_MODEL_LADDER = [
-    "qwen/qwen3.8-27b",        # 極速主力（原專案第一順位）
-    "openai/gpt-oss-120b",     # 高智商旗艦
-    "groq/compound",           # Groq 內建工具編排
-    "openai/gpt-oss-20b",      # 輕量保底
-    "groq/compound-mini",      # 最後防線
+    "qwen/qwen3.8-27b",        # 極速主力（原專案第一順位，實測 0.4s 級）
+    "openai/gpt-oss-120b",     # 高智商旗艦（120B 最強推理）
+    "openai/gpt-oss-20b",      # 輕量保底（20B 快答）
+    "allam-2-7b",              # 最終防線（7B；阿拉伯語系為主，中文較弱，僅墊底）
 ]
 
 
@@ -95,6 +98,74 @@ def reset():
     """測試用：清空冷卻狀態"""
     _key_cooldown.clear()
     _model_cooldown.clear()
+
+
+# ── 模型可用性交叉驗證（自動過濾已下架/寫錯的模型名）─────────────────────────
+# 背景：Groq 會調整模型名單，梯隊裡若殘留不存在的名稱，每次都會撞 404 浪費一輪。
+_models_cache: Dict[str, Any] = {"at": 0.0, "set": None, "fail_at": 0.0}
+_MODELS_TTL = 6 * 3600.0     # 6 小時抓一次
+_MODELS_RETRY = 120.0        # 抓取失敗後 2 分鐘才重試，避免每次呼叫都打 /models
+
+
+def _log(msg: str) -> None:
+    """安全輸出（Windows cp950 主控台印不出部分字元時自動降級）"""
+    try:
+        print(msg)
+    except Exception:
+        try:
+            print(msg.encode("utf-8", "replace").decode("ascii", "replace"))
+        except Exception:
+            pass
+
+
+def _fetch_available_models_sync() -> Optional[set]:
+    if not GROQ_KEYS:
+        return None
+    try:
+        import httpx
+        r = httpx.get(
+            "https://api.groq.com/openai/v1/models",
+            headers={"Authorization": f"Bearer {GROQ_KEYS[0]}"},
+            timeout=10.0,
+        )
+        if r.status_code == 200:
+            ids = {m.get("id") for m in (r.json().get("data") or []) if m.get("id")}
+            return ids or None
+    except Exception:
+        pass
+    return None
+
+
+def get_available_models(force: bool = False) -> Optional[set]:
+    """同步取得可用模型集合（有快取；失敗回 None 表示「不確定」）"""
+    now = time.time()
+    cached = _models_cache.get("set")
+    if cached is not None and (force or now - float(_models_cache.get("at") or 0) < _MODELS_TTL):
+        return cached
+    if not force and now - float(_models_cache.get("fail_at") or 0) < _MODELS_RETRY:
+        return cached   # 剛失敗過，先沿用舊值（可能仍是 None）
+    ids = _fetch_available_models_sync()
+    if ids:
+        _models_cache.update(at=now, set=ids, fail_at=0.0)
+        return ids
+    _models_cache["fail_at"] = now
+    return cached
+
+
+async def _filter_unavailable(ladder: List[str]) -> List[str]:
+    """把當前帳號上不存在的模型名從梯隊剔除（查證失敗時維持原梯隊）"""
+    if len(ladder) <= 1:
+        return ladder
+    avail = await asyncio.to_thread(get_available_models)
+    if not avail:
+        return ladder
+    kept = [m for m in ladder if m in avail]
+    if not kept:                     # 快取過期/名稱全變：寧可用原梯隊也不要空的
+        return ladder
+    dropped = [m for m in ladder if m not in avail]
+    if dropped:
+        _log(f"[Groq Router] 過濾掉不存在的模型: {dropped}（保留 {kept}）")
+    return kept
 
 
 # ── 回傳物件：模擬 Google GenAI 的回應形狀 ───────────────────────────────────
@@ -276,6 +347,7 @@ async def groq_chat(
         return None
 
     ladder = models or ([model] if model else MODEL_LADDER)
+    ladder = await _filter_unavailable(ladder)   # 剔除 Groq 帳號上不存在的模型名
     wire_tools = to_openai_tools(tools) if tools else None
 
     # 工具名稱映射（安全化 -> 原名），供回應還原
