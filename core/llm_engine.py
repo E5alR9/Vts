@@ -111,8 +111,6 @@ STREAMER_MIND_MODELS = [
 
 KEYS_VISION        = GEMINI_KEYS[12:18] if len(GEMINI_KEYS) >= 18 else GEMINI_KEYS
 
-GROQ_CLIENTS = []
-
 HIGH_IQ_GEMINI_MODELS = [ 
     "gemini-3.8-flash",                    # 🚀 第 1 優先：2026 全新頂配旗艦大腦（最強深度思考與頂尖推理）
     "gemini-3.7-flash",                    # 👑 第 2 位：頂配旗艦大腦（深度思考 Thinking 原生開啟）

@@ -1,6 +1,46 @@
+# 7L AI VTuber — 執行期依賴（本機版，不再從 GitHub 遠端安裝）
+# 安裝：python -m pip install -r requirements.txt
+# 顯卡版 PyTorch（CUDA 12.4）請另行安裝：
+#   python -m pip install torch --index-url https://download.pytorch.org/whl/cu124
+
+# ── 核心通訊 / 平台 ─────────────────────────────────────────────
 discord.py
-groq
 aiohttp
-firebase-admin
-duckduckgo_search
+websockets
+pyvts                      # VTube Studio API
 python-dotenv
+
+# ── LLM / AI ───────────────────────────────────────────────────
+groq                       # 文字主力（第一梯隊）
+google-genai               # 視覺 + Live API 音訊
+duckduckgo_search
+tavily-python
+
+# ── 語音：TTS / STT / 音訊 ─────────────────────────────────────
+kokoro-onnx                # 本地小模型 TTS（預設引擎）
+edge-tts                   # 雲端備援 TTS（台灣腔女聲 / 日文）
+espeakng-loader            # phonemizer 的 espeak-ng 資料（Windows 內建）
+phonemizer
+soundfile
+librosa
+pygame
+soundcard                  # WASAPI loopback（擷取系統音）
+SpeechRecognition
+PyAudio
+faster-whisper             # 本地 STT
+numpy
+
+# ── RAG / 向量檢索 ─────────────────────────────────────────────
+chromadb                   # 向量資料庫（本機持久化）
+fastembed                  # 本地嵌入模型（ONNX，離線）
+faiss-cpu                  # 向量相似度（RVC / 檢索共用）
+
+# ── 其他 ───────────────────────────────────────────────────────
+firebase-admin
+opencv-python
+Pillow
+pyautogui
+psutil
+transformers
+tzdata
+EulerApiSdk
