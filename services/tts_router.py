@@ -54,6 +54,7 @@ KOKORO_VOICES = os.getenv("TTS_KOKORO_VOICES") or "voices-v1.1-zh.bin"
 
 _active_engine: Optional[str] = None
 _engine_errors: dict = {}
+_rescue_probe: dict = {"at": 0.0}      # 鏈首試探時間戳：讓降級後的引擎能自動升級回來
 
 
 def _log(msg: str) -> None:
@@ -437,6 +438,14 @@ async def get_tts_audio_bytes(text: str) -> bytes:
     chain = ([_active_engine] if _active_engine in _ENGINES else []) + \
             [e for e in ENGINE_CHAIN if e != _active_engine]
 
+    # 自動升級：當前引擎不是鏈首時（例：啟動時 cosyvoice 服務還沒載入完、先落在
+    # kokoro），每 120 秒把鏈首提到最前試探一次；服務就緒後下次合成會切回去。
+    top = ENGINE_CHAIN[0] if ENGINE_CHAIN else None
+    if top and top != _active_engine and top in _ENGINES:
+        if time.time() - _rescue_probe["at"] >= 120.0:
+            _rescue_probe["at"] = time.time()
+            chain = [top] + [e for e in chain if e != top]
+
     for engine in chain:
         fn = _ENGINES.get(engine)
         if fn is None:
@@ -452,10 +461,12 @@ async def get_tts_audio_bytes(text: str) -> bytes:
                 return data
             raise RuntimeError("回傳音訊為空")
         except Exception as e:
+            prev = _engine_errors.get(engine)
             _engine_errors[engine] = str(e)[:200]
             if _active_engine == engine:
                 _active_engine = None  # 生效中的引擎壞了，重新走整條鏈
-            _log(f"[TTS Router] {engine} 失敗，降級下一個: {str(e)[:120]}")
+            if prev != _engine_errors[engine]:      # 同樣錯誤不重複刷屏（避免每句都 log）
+                _log(f"[TTS Router] {engine} 失敗，降級下一個: {str(e)[:120]}")
             continue
     return b""
 
