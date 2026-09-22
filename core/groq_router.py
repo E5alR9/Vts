@@ -55,6 +55,44 @@ def _load_ladder() -> List[str]:
     return models or list(DEFAULT_MODEL_LADDER)
 
 
+# ── 每分鐘請求限流（GROQ_REQUESTS_PER_MINUTE，0 或未設 = 不限）──────────────
+# 滑動 60 秒視窗；跨金鑰總量計算（限的是「這台機器打給 Groq 的總請求」）。
+# 惰性讀取 env：改 .env 後重啟（或 dotenv 重載）即生效，不需改程式。
+_rpm_stamp: List[float] = []
+_rpm_last_log = 0.0
+
+
+def _rpm_limit() -> int:
+    raw = (os.getenv("GROQ_REQUESTS_PER_MINUTE") or "").strip()
+    if not raw:
+        return 0
+    try:
+        return max(0, int(float(raw)))
+    except ValueError:
+        return 0
+
+
+async def throttle_rpm() -> None:
+    """在實際發出請求前呼叫；超過每分鐘上限就等到視窗滑動。"""
+    global _rpm_last_log
+    limit = _rpm_limit()
+    if limit <= 0:
+        _rpm_stamp.clear()
+        return
+    while True:
+        now = time.monotonic()
+        while _rpm_stamp and now - _rpm_stamp[0] >= 60.0:
+            _rpm_stamp.pop(0)
+        if len(_rpm_stamp) < limit:
+            break
+        wait = 60.0 - (now - _rpm_stamp[0]) + 0.05
+        if now - _rpm_last_log > 30.0:
+            _rpm_last_log = now
+            _log(f"[Groq Router] 達到 {limit} RPM 上限，等待 {wait:.1f}s（視窗滑動）")
+        await asyncio.sleep(min(max(wait, 0.05), 60.0))
+    _rpm_stamp.append(time.monotonic())
+
+
 GROQ_KEYS: List[str] = _load_keys()
 MODEL_LADDER: List[str] = _load_ladder()
 
@@ -383,6 +421,7 @@ async def groq_chat(
                 if wire_tools:
                     kwargs["tools"] = wire_tools
 
+                await throttle_rpm()   # 每分鐘請求上限（GROQ_REQUESTS_PER_MINUTE）
                 raw = await asyncio.wait_for(client.chat.completions.create(**kwargs), timeout=timeout)
 
                 if not raw or not raw.choices:
