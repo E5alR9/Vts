@@ -1,0 +1,41 @@
+{
+  "current_activity": "7L 正常待命中",
+  "active_tasks": {},
+  "piano_state": {
+    "is_playing": false,
+    "title": "",
+    "progress_percent": 0.0,
+    "current_time_str": "00:00",
+    "total_duration_str": "00:00",
+    "instrument": "🎹 古典平台鋼琴 (Grand Piano)",
+    "speed": 1.0,
+    "volume": 100
+  },
+  "vision_context": "老爸目前正在使用 VS Code 編輯 Python 程式碼，並同時開啟瀏覽器與 Discord 進行系統監控與社群互動。",
+  "audio_context": "電腦目前沒有播放特別的聲音。",
+  "dad_context": {
+    "last_input": "早安",
+    "last_interaction_time": 1790011046.9913127,
+    "current_topic": "日常互動",
+    "is_read": true,
+    "read_time": 1790011051.495731
+  },
+  "audience_context": {
+    "last_viewer": "",
+    "last_comment": "",
+    "last_interaction_time": 0.0,
+    "active_viewers_count": 0,
+    "is_read": true,
+    "read_time": 1790005398.279699
+  },
+  "system_status": {
+    "ai_status": "🟢 通道就緒",
+    "mic_volume": "[🟢 麥克風就緒]",
+    "mic_action": "待命",
+    "is_streaming": false,
+    "is_piano_active": false,
+    "is_mic_enabled": true
+  },
+  "updated_at": "2026-09-22 01:17:47",
+  "timestamp": 1790011067.245839
+}
