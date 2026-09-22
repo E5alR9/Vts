@@ -287,10 +287,101 @@ async def _synth_xiaoyi(text: str) -> bytes:
     return await local_xiaoyi_service.get_xiaoyi_audio_bytes(text)
 
 
+# ── ElevenLabs（雲端精品 TTS）───────────────────────────────────────────────
+# 免費版每月 10,000 字元（≈10 分鐘語音），所以：
+#   1) 預設不啟用，要用請設 TTS_ENGINE=elevenlabs（建議 TTS_FALLBACK=kokoro,edge,xiaoyi）
+#   2) 內建額度守衛：每 10 分鐘查一次官方額度，用盡自動拋錯 → 引擎鏈降級回本地
+#   3) 模型先走最快的 flash（TTFB ~0.37s），失敗自動改試 multilingual_v2（品質最穩）
+ELEVEN_KEY = (os.getenv("ELEVENLABS_API_KEY") or "").strip()
+ELEVEN_VOICE = (os.getenv("ELEVEN_VOICE_ID") or "").strip() or "EXAVITQu4vr4xnSDxMaL"   # Sarah
+ELEVEN_MODEL = (os.getenv("ELEVEN_MODEL") or "").strip() or "eleven_flash_v2_5"
+ELEVEN_MODEL_QUALITY = (os.getenv("ELEVEN_MODEL_QUALITY") or "").strip() or "eleven_multilingual_v2"
+ELEVEN_OUT_FMT = os.getenv("ELEVEN_OUTPUT_FORMAT") or "mp3_44100_128"
+ELEVEN_LIMIT_FALLBACK = int(os.getenv("ELEVEN_MONTHLY_LIMIT") or "10000")
+
+_quota = {"at": 0.0, "used": 0, "limit": ELEVEN_LIMIT_FALLBACK, "local": 0, "logged": False}
+
+
+async def eleven_remaining() -> int:
+    """剩餘可用字元（遠端額度快取 10 分鐘；查失敗就退回本地計數）"""
+    now = time.time()
+    if ELEVEN_KEY and now - _quota["at"] > 600:
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=10.0) as cli:
+                r = await cli.get("https://api.elevenlabs.io/v1/user/subscription",
+                                  headers={"xi-api-key": ELEVEN_KEY})
+            if r.status_code == 200:
+                sub = r.json().get("subscription", r.json())
+                _quota.update(at=now,
+                              used=int(sub.get("character_count") or 0),
+                              limit=int(sub.get("character_limit") or ELEVEN_LIMIT_FALLBACK))
+            else:
+                _quota["at"] = now - 540          # 60 秒後重試，不要每次合成都打
+        except Exception:
+            _quota["at"] = now - 540
+    return max(0, _quota["limit"] - _quota["used"] - _quota["local"])
+
+
+async def _eleven_call(cli, text: str, model: str) -> bytes:
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_VOICE}/stream"
+    payload = {
+        "text": text,
+        "model_id": model,
+        "voice_settings": {"stability": 0.4, "similarity_boost": 0.8},
+    }
+    async with cli.stream("POST", url, headers={"xi-api-key": ELEVEN_KEY},
+                          params={"output_format": ELEVEN_OUT_FMT}, json=payload) as resp:
+        if resp.status_code != 200:
+            body = (await resp.aread()).decode("utf-8", "replace")
+            raise RuntimeError(f"ElevenLabs {model} HTTP {resp.status_code}: {body[:150]}")
+        buf = io.BytesIO()
+        async for chunk in resp.aiter_bytes():
+            buf.write(chunk)
+        data = buf.getvalue()
+    if not data:
+        raise RuntimeError(f"ElevenLabs {model} 回傳空白音訊")
+    return data
+
+
+async def _synth_elevenlabs(text: str) -> bytes:
+    """ElevenLabs 串流合成（MP3 bytes）。額度不足拋錯讓引擎鏈降級到本地。"""
+    if not ELEVEN_KEY:
+        raise RuntimeError("未設定 ELEVENLABS_API_KEY")
+    lang = detect_language(text)
+    text = _clean_text(text, lang)
+    if not text:
+        return b""
+
+    left = await eleven_remaining()
+    if left <= 0:
+        raise RuntimeError(f"ElevenLabs 月額度已用盡（{_quota['used']}/{_quota['limit']}），降級本地引擎")
+    if not _quota["logged"]:
+        _quota["logged"] = True
+        _log(f"[TTS Router] ElevenLabs 啟用: voice={ELEVEN_VOICE} model={ELEVEN_MODEL} "
+             f"剩餘額度 {left}/{_quota['limit']} 字元（每月重置）")
+
+    import httpx
+    async with httpx.AsyncClient(timeout=60.0) as cli:
+        try:
+            data = await _eleven_call(cli, text, ELEVEN_MODEL)
+        except Exception as e:
+            # 主模型不可用（免費版沒開／模型改名）→ 退到品質款再試一次
+            if ELEVEN_MODEL_QUALITY and ELEVEN_MODEL != ELEVEN_MODEL_QUALITY:
+                _log(f"[TTS Router] ElevenLabs {ELEVEN_MODEL} 失敗，改試 {ELEVEN_MODEL_QUALITY}: {e}")
+                data = await _eleven_call(cli, text, ELEVEN_MODEL_QUALITY)
+            else:
+                raise
+
+    _quota["local"] += len(text)
+    return data
+
+
 _ENGINES = {
     "kokoro": _synth_kokoro,
     "edge": _synth_edge,
     "xiaoyi": _synth_xiaoyi,
+    "elevenlabs": _synth_elevenlabs,
 }
 
 
@@ -304,7 +395,7 @@ def get_engine_errors() -> dict:
 
 def file_extension(engine: str) -> str:
     """回傳該引擎產出的副檔名（供播放端正確命名暫存檔）"""
-    return ".mp3" if engine == "edge" else ".wav"
+    return ".mp3" if engine in ("edge", "elevenlabs") else ".wav"
 
 
 async def get_tts_audio_bytes(text: str) -> bytes:

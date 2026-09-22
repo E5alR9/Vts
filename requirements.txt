@@ -6,6 +6,7 @@
 # ── 核心通訊 / 平台 ─────────────────────────────────────────────
 discord.py
 aiohttp
+httpx                      # ElevenLabs TTS / 各雲端 API 的 HTTP 用戶端
 websockets
 pyvts                      # VTube Studio API
 python-dotenv
