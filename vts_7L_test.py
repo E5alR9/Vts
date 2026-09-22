@@ -49,8 +49,12 @@ if __name__ == "__main__":
     except Exception:
         pass
 
-from EulerApiSdk.models import record_string_unknown
-from EulerApiSdk.models import record_string_unknown
+# 原作者本機版 EulerApiSdk 才有 record_string_unknown；PyPI 正式版沒有此符號
+# （且下方程式從未實際使用），故改為容錯 import，避免整支程式起不來。
+try:
+    from EulerApiSdk.models import record_string_unknown  # noqa: F401
+except ImportError:
+    record_string_unknown = None
 from google.genai import types
 from services.piano_engine import get_piano_realtime_prompt
 from services.piano_engine import is_piano_active
@@ -134,6 +138,18 @@ INTERACTIONS_TOOLS = [
             "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "搜尋關鍵字"}
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "type": "function",
+        "name": "search_knowledge",
+        "description": "檢索 7L 本地 RAG 記憶庫（過往對話、觀眾檔案、外部知識文件），回答涉及過去發生過的事或既有資料時優先使用",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "要檢索的中文關鍵句（例如：老爸的鍵盤型號、某觀眾的關係）"}
             },
             "required": ["query"]
         }
@@ -622,6 +638,23 @@ async def summarize_search_to_speech(query: str, search_raw: str, user_role_name
     clean_search = re.sub(r'https?://\S+', '', search_raw)
     clean_search = re.sub(r'\s{2,}', ' ', clean_search).strip()[:1500]
 
+    # ⚡ 第 0 防線：Groq 極速提煉（第一梯隊，實測 0.4s 級；失敗或無結果才交給下方 Gemini）
+    try:
+        from core.groq_router import groq_chat
+        g_resp = await groq_chat(
+            [
+                {"role": "system", "content": "妳是虛擬主播 7L，負責把搜尋原始資料轉成自然口語。嚴禁 Emoji、嚴禁照抄條列清單、網址或網頁標題，只講核心意思。"},
+                {"role": "user", "content": f"查詢：{query}\n\n搜尋原始資料：\n{clean_search}\n\n請以親切隨性的口吻，用 1~3 句俐落短句（40~80 字以內）對{user_role_name}提煉並說明重點。"},
+            ],
+            temperature=0.75, max_tokens=500, timeout=4.5,
+        )
+        if g_resp and g_resp.text:
+            ans = re.sub(r'\[[A-Z_]+(?::\s*[^\]]+)?\]', '', g_resp.text).strip()
+            if ans and not ans.startswith("(") and len(ans) > 5:
+                return ans
+    except Exception:
+        pass
+
     # 1. 第一防線：極速、高可用性的 Gemini Flash Lite 模型提煉 (抗 503、0.8s 響應)
     lite_models = ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-3-flash-preview"]
     if GEMINI_KEYS:
@@ -808,7 +841,34 @@ async def execute_tool_dispatch(fn_name: str, fn_args: dict, caller_target: str 
         cnt = fn_args.get("content", "")
         asyncio.create_task(update_cloud_prompt_field(cat, cnt))
         extracted_text += " [KNOWLEDGE_UPDATED]"
+    elif fn_name == "search_knowledge":
+        # 📚 本地 RAG 檢索（chromadb + fastembed，離線可用；同步部分丟執行緒）
+        q = fn_args.get("query", "")
+        try:
+            from services.rag_store import search as rag_search
+            hits = await asyncio.to_thread(rag_search, q, 4)
+            if hits:
+                lines = []
+                for i, h in enumerate(hits, 1):
+                    src = (h.get("metadata") or {}).get("source", "")
+                    lines.append(f"{i}. {h['text'][:220]}" + (f"（來源:{src}）" if src else ""))
+                extracted_text += " [RAG_KNOWLEDGE]\n" + "\n".join(lines) + "\n[/RAG_KNOWLEDGE]"
+            else:
+                extracted_text += " [RAG_KNOWLEDGE: 無命中]"
+        except Exception as _rag_err:
+            log_print(f"⚠️ [RAG 檢索失敗]: {str(_rag_err)[:80]}")
     return extracted_text
+
+
+def build_rag_section(query: str, k: int = 3) -> str:
+    """📚 同步 RAG 檢索 -> 可直接拼進 prompt 的段落（失敗或無命中回空字串）"""
+    if not query or not str(query).strip():
+        return ""
+    try:
+        from services.rag_store import rag_prompt_block
+        return rag_prompt_block(str(query), k=k)
+    except Exception:
+        return ""
 
 async def get_lightweight_gemini_vision(image_base64: str, temporal_frames: list | None = None) -> str:
     """👁️ 【3.1-flash-lite 深度視覺認真看】：受 Live API 哨兵喚醒時才精準啟動，支援傳入上次看到現在的所有時序影格，形成動態視覺感知。"""
@@ -1216,6 +1276,37 @@ async def fetch_ai_response(messages, image_base64=None, audio_base64=None, is_p
                 lock_target(target_id, "wait 30s")
             return None
 
+    # ⚡ 第零防線：Groq 極速前鋒（純文字請求；實測 0.4s 級）
+    #   有圖片/音訊的多模態請求直接跳過，交給 Gemini 視覺與音訊管線。
+    #   模型若想呼叫工具：工具照常背景派發，但只有當它同時產出口語台詞才採用，
+    #   否則回退到下方 Gemini 完整管線（含 Function Response 第二輪）。
+    if not image_base64 and not audio_base64:
+        try:
+            from core.groq_router import groq_chat, contents_to_messages
+            g_msgs = contents_to_messages(chat_contents)
+            if g_msgs:
+                g_t0 = time.time()
+                g_resp = await groq_chat(
+                    g_msgs, tools=INTERACTIONS_TOOLS,
+                    temperature=0.8, max_tokens=900, timeout=8.0,
+                )
+                if g_resp and (g_resp.text or g_resp.function_calls):
+                    g_text = (g_resp.text or "").strip()
+                    if g_resp.function_calls:
+                        for g_fc in g_resp.function_calls:
+                            log_print(f"🛠️ [Groq 前鋒調用工具] {g_fc.name}({g_fc.args})")
+                            asyncio.create_task(execute_tool_dispatch(g_fc.name, g_fc.args, caller_target="dad", caller_user="老爸"))
+                    if g_text:
+                        g_dur = time.time() - g_t0
+                        total_duration = time.time() - overall_start_time
+                        record_api_call_latency(total_duration)
+                        time_stat = f" [總耗時: {total_duration:.2f}s | 深度思考: {g_dur:.2f}s]"
+                        current_model_tag = f"🧠 {g_resp.model} (Groq 前鋒){time_stat}"
+                        log_print(f"⚡ [Groq 前鋒秒答] {current_model_tag}")
+                        return g_text.strip()
+        except Exception as _g_err:
+            log_print(f"⚠️ [Groq 前鋒暫時失敗，交回 Gemini]: {str(_g_err)[:100]}")
+
     # 🌟 第一防線：主力 Gemini 旗艦大腦（5 秒階梯式併發競速：5秒未回覆時原請求不中斷，加開新通道雙軌/多軌搶答！）
     max_gemini_attempts = 45 
     active_gemini_tasks = {}  # task -> (target_id, g_model, start_time)
@@ -1413,15 +1504,41 @@ async def fetch_fast_text_reply(user_input: str, custom_name: str, situation_pro
     cloud_kn = await get_cloud_knowledge()
     cloud_kn_prompt = PromptTemplateEngine.format_cloud_knowledge_prompt(cloud_kn, is_tiktok=bool(tt_parsed), current_custom_name=custom_name)
     ck_sec = f"\n{cloud_kn_prompt}\n" if cloud_kn_prompt else ""
+    rag_sec = build_rag_section(clean_q)   # 📚 本地 RAG 記憶檢索（離線、失敗自動略過）
 
     prompt = f"""時間：{get_current_time_string()}
 {ck_sec}
+{rag_sec}
 {PromptTemplateEngine.HARD_TECHNICAL_RULES}
 
 {recent_history_str}{situation_prompt}
 
 {speaker_section}
 """
+
+    # 0. ⚡ 絕對第一優先：Groq 極速前鋒（實測 0.4s 級；純文字 + 工具直答，失敗才交給 Gemini）
+    #    視覺/音訊等多模態請求不會走到這裡（本函式僅接收文字 prompt）
+    try:
+        from core.groq_router import groq_chat
+        g_resp = await groq_chat(
+            [{"role": "user", "content": prompt}],
+            tools=INTERACTIONS_TOOLS,
+            temperature=0.75, max_tokens=500, timeout=4.0,
+        )
+        if g_resp and (g_resp.text or g_resp.function_calls):
+            txt = (g_resp.text or "").strip()
+            if g_resp.function_calls:
+                fast_target = "audience" if tt_parsed else "dad"
+                fast_user = audience_user if tt_parsed else "老爸"
+                for fc in g_resp.function_calls:
+                    log_print(f"🛠️ [Groq 極速大腦調用工具] {fc.name}({fc.args})")
+                    asyncio.create_task(execute_tool_dispatch(fc.name, fc.args, caller_target=fast_target, caller_user=fast_user))
+                    txt += f" [OUTCOME: {fc.name}({fc.args})] [HAD_TOOL_CALL]"
+            if txt:
+                dur = time.time() - start_t
+                return (txt, f"Groq/{g_resp.model.split('/')[-1]}", dur)
+    except Exception:
+        pass
 
     # 1. 🌟 絕對第一優先：Gemini 極速輕量前鋒矩陣 (高智商、自然口語、超大額度、具備完整工具調用能力)
     if GEMINI_KEYS:
@@ -1575,9 +1692,11 @@ async def call_gemini_live_audience_reply(vts, input_queue, audience_user: str, 
         cloud_kn = await get_cloud_knowledge()
         cloud_kn_prompt = PromptTemplateEngine.format_cloud_knowledge_prompt(cloud_kn, is_tiktok=True)
         ck_sec = f"\n{cloud_kn_prompt}\n" if cloud_kn_prompt else ""
+        rag_sec = build_rag_section(audience_content)   # 📚 觀眾留言的 RAG 記憶檢索
 
         sys_instruction = f"""時間：{get_current_time_string()}
 {ck_sec}
+{rag_sec}
 {PromptTemplateEngine.HARD_TECHNICAL_RULES}
 
 {speaker_role_prompt}
@@ -1638,6 +1757,30 @@ async def call_gemini_live_audience_reply(vts, input_queue, audience_user: str, 
         full_reply = ""
         used_model_name = ""
         tool_output_text = ""
+
+        # ⚡ Groq 第一梯隊：純文字直答先走 Groq（實測 0.4s 級）。
+        #    只接受「純文字、無工具呼叫」的結果；模型想調工具或 Groq 失敗時，
+        #    full_reply 維持空字串，交由下方 Gemini 完整管線處理。
+        try:
+            from core.groq_router import groq_chat
+            g_resp = await groq_chat(
+                [{"role": "user", "content": f"{sys_instruction_with_100m}\n\n{prompt_user_input}"}],
+                tools=INTERACTIONS_TOOLS,
+                temperature=0.78, max_tokens=500, timeout=4.5,
+            )
+            if g_resp and g_resp.text and not g_resp.function_calls:
+                g_candidate = g_resp.text.strip()
+                if g_candidate:
+                    # 與 Gemini 迴圈內的 [PASS] 靜默過濾保持一致語意
+                    if "[PASS]" in g_candidate or g_candidate == "PASS":
+                        dur = time.time() - start_t
+                        log_print(f"🤫 7L (大腦過濾): Groq 判定為無關發言 ➔ [PASS] 靜默略過 (耗時: {dur:.2f}s)")
+                        realtime_task_mgr.finish_audience_task(audience_user)
+                        return True
+                    full_reply = g_candidate
+                    used_model_name = f"Groq/{g_resp.model.split('/')[-1]}"
+        except Exception:
+            pass
 
         for idx, g_key in enumerate(all_candidate_keys[:6]):
             if full_reply: break
@@ -3509,22 +3652,23 @@ async def play_voice_complete(text, target: str = "dad", raw_actions_text: str =
             async def tts_producer_worker():
                 """背景 Worker A：依序合成各分段音訊，第一段一好立刻 push 進隊列"""
                 try:
-                    import local_xiaoyi_service
+                    import services.tts_router as tts_router
                     for idx, c_dict in enumerate(chunks):
                         try:
                             t0 = time.time()
-                            local_wav = await local_xiaoyi_service.get_xiaoyi_audio_bytes(c_dict["text"])
+                            local_wav = await tts_router.get_tts_audio_bytes(c_dict["text"])
                             if local_wav and len(local_wav) > 100:
                                 cost = time.time() - t0
-                                part_file = os.path.join(base_proj_dir, f"temp_reply_{int(time.time()*1000)}_{random.randint(100,999)}_part{idx}.mp3")
+                                _eng = tts_router.get_active_engine() or "kokoro"
+                                part_file = os.path.join(base_proj_dir, f"temp_reply_{int(time.time()*1000)}_{random.randint(100,999)}_part{idx}{tts_router.file_extension(_eng)}")
                                 with open(part_file, "wb") as pf:
                                     pf.write(bytes(local_wav))
                                     pf.flush()
                                 temp_files_to_clean.append(part_file)
-                                log_print(f"🟢 【串流分段 TTS ⚡ 第 {idx+1}/{len(chunks)} 句秒出】: '{c_dict['text']}' (耗時:{cost:.2f}s)")
+                                log_print(f"🟢 【串流分段 TTS({_eng}) ⚡ 第 {idx+1}/{len(chunks)} 句秒出】: '{c_dict['text']}' (耗時:{cost:.2f}s)")
                                 await audio_stream_queue.put({"file": part_file, "text": c_dict["text"], "idx": idx, "total": len(chunks)})
                             else:
-                                log_print(f"⚠️ 【本地 RTX 3080 Ti TTS 回傳為空】'{c_dict['text']}'")
+                                log_print(f"⚠️ 【TTS 回傳為空】'{c_dict['text']}'")
                         except Exception as e:
                             log_print(f"❌ 【分段音訊合成異常】: {e}")
                 finally:
@@ -6370,7 +6514,30 @@ async def streamer_mind_loop_worker(vts, input_queue):
             full_reply = ""
             used_model_name = ""
             tool_output_text = ""
-            
+
+            # ⚡ Groq 第一梯隊：純文字直答先走 Groq（實測 0.4s 級）。
+            #    只採用「純文字、無工具呼叫」的結果；模型要調工具或 Groq 失敗時，
+            #    full_reply 維持原樣，交由下方 Gemini 梯隊處理（含 Function Response 第二輪）。
+            try:
+                from core.groq_router import groq_chat
+                g_resp = await groq_chat(
+                    [{"role": "user", "content": f"{sys_instruction}\n\n{prompt_user_input}"}],
+                    tools=INTERACTIONS_TOOLS,
+                    temperature=0.78, max_tokens=500, timeout=4.5,
+                )
+                if g_resp and g_resp.text and not g_resp.function_calls:
+                    g_candidate = re.sub(r'\[PASS\]', '', g_resp.text, flags=re.IGNORECASE).strip()
+                    if g_candidate:
+                        full_reply = g_candidate
+                        used_model_name = f"Groq/{g_resp.model}"
+                    elif "[PASS]" in g_resp.text or g_resp.text.strip() == "PASS":
+                        for m in batch_to_process:
+                            m["status"] = "read"
+                        log_print("🤫 7L (看板過濾): Groq 研判為無關刷屏 ➔ [PASS] 略過")
+                        full_reply = "[PASS]"
+            except Exception:
+                pass
+
             for g_key in candidate_keys[:6]:
                 if full_reply: break
                 client = genai.Client(api_key=g_key)
@@ -6612,7 +6779,7 @@ async def process_chat_message(vts, input_queue, user_input: str, user_audio_b64
         # 🧠 動態獲取 7L 雲端認知庫 (Firestore 永久大腦) 與 即時重大時事情報 (按需加載)
         cloud_kn = await get_cloud_knowledge()
         cloud_kn_prompt = PromptTemplateEngine.format_cloud_knowledge_prompt(cloud_kn)
-        trending_news_prompt = (await get_trending_news_briefing()) if need_news else ""
+        rag_sec = build_rag_section(user_input)   # 📚 主對話路徑的 RAG 記憶檢索（離線、失敗自動略過）
 
         # 💬 依據自主判定配額動態調取歷史記憶（h_lim=0 時 0 毫秒秒過，完全不讀舊資料庫；最高調取上百句）
         history = (await fetch_from_long_term_memory(DEFAULT_CHANNEL_ID, user_input, limit=max(h_lim, 150))) if h_lim > 0 else []
@@ -6658,7 +6825,7 @@ async def process_chat_message(vts, input_queue, user_input: str, user_audio_b64
         if not is_direct_event:
             log_print(f"🚨 [Live 潛意識哨兵 喚醒主力] 判定應回應老爸！焦點: {log_focus}")
 
-        effective_situation = f"{situation_prompt}\n{recent_chat_prompt}\n{trending_news_prompt}\n{cloud_kn_prompt}".strip()
+        effective_situation = f"{situation_prompt}\n{recent_chat_prompt}\n{trending_news_prompt}\n{cloud_kn_prompt}\n{rag_sec}".strip()
 
         # ── 👑 老爸全能旗艦主腦大腦 (語音多模態 + 螢幕截圖視覺 + 深度記憶 + 完整系統提示詞) ──
         
@@ -7795,15 +7962,18 @@ async def main():
     GLOBAL_INPUT_QUEUE = input_queue
     
     # 啟動全部背景協程
-    # 🔥 GPT-SoVITS 曉伊模型預熱：在背景 Thread 初始化，避免第一句說話卡頓
-    def _prewarm_xiaoyi():
+    # 🔥 TTS 小模型預熱：在背景 Thread 載入 Kokoro-82M (~310MB)，避免第一句說話卡頓
+    def _prewarm_tts():
         try:
-            import local_xiaoyi_service
-            local_xiaoyi_service.init_gpt_sovits()
-            log_print("🟢 [GPT-SoVITS 預熱完成] 7L 本地顯卡語音引擎已就緒！")
+            import services.tts_router as tts_router
+            if "kokoro" in tts_router.ENGINE_CHAIN:
+                tts_router._get_kokoro()
+                log_print("🟢 [TTS 預熱完成] Kokoro-82M 本地語音引擎已就緒！")
+            else:
+                log_print(f"ℹ️ [TTS 預熱跳過] 引擎鏈: {tts_router.ENGINE_CHAIN}")
         except Exception as e:
-            log_print(f"⚠️ [GPT-SoVITS 預熱跳過]: {e}")
-    asyncio.create_task(asyncio.to_thread(_prewarm_xiaoyi))
+            log_print(f"⚠️ [TTS 預熱跳過]: {e}（首句會自動降級到備援引擎）")
+    asyncio.create_task(asyncio.to_thread(_prewarm_tts))
     asyncio.create_task(mic_volume_worker())
     asyncio.create_task(mic_worker(recognizer, input_queue))
     asyncio.create_task(text_file_listener_worker(input_queue))
