@@ -20,7 +20,11 @@ if hasattr(sys, '__stdout__') and hasattr(sys.__stdout__, 'reconfigure'):
     except Exception:
         pass
 
-BASE_DIR = r"C:\Users\qiwai\GPT-SoVITS"
+# 🧭 路徑改為「環境變數優先、退回使用者家目錄」，不再寫死原作者電腦
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from core.paths import GPT_SOVITS_DIR, FINETUNE_DATA_DIR, REF_VOICE_ZH, REF_VOICE_JA
+
+BASE_DIR = GPT_SOVITS_DIR
 if BASE_DIR not in sys.path:
     sys.path.append(BASE_DIR)
     sys.path.append(os.path.join(BASE_DIR, "GPT_SoVITS"))
@@ -148,8 +152,8 @@ def init_gpt_sovits():
         config = TTS_Config("GPT_SoVITS/configs/tts_infer.yaml")
         config.device = "cuda"
         config.is_half = True
-        config.t2s_weights_path = r"C:\Users\qiwai\GPT-SoVITS\GPT_weights_v2\xiaoyi_finetune-e4.ckpt"
-        config.vits_weights_path = r"C:\Users\qiwai\finetune_data\opt\xiaoyi_finetune\xiaoyi_sovits_inference.pth"
+        config.t2s_weights_path = os.path.join(GPT_SOVITS_DIR, "GPT_weights_v2", "xiaoyi_finetune-e4.ckpt")
+        config.vits_weights_path = os.path.join(FINETUNE_DATA_DIR, "opt", "xiaoyi_finetune", "xiaoyi_sovits_inference.pth")
         config.cnhubert_base_path = "pretrained_models/chinese-hubert-base"
         config.bert_base_path = "pretrained_models/chinese-roberta-wwm-ext-large"
         
@@ -157,7 +161,7 @@ def init_gpt_sovits():
         
         # ⚡ 核心預熱與常駐快取：初始化時即完成參考音與文字 BERT 萃取，使後續所有合成省去 80% 時間！
         try:
-            ref_audio = r"C:\Users\qiwai\xiaoyi_girl_ref.wav"
+            ref_audio = REF_VOICE_ZH
             ref_text = "哇！真的假的？太棒了吧！今天也要一起加油喔！嘿嘿～"
             with capture_tts_output():
                 _tts_pipeline.set_ref_audio(ref_audio)
@@ -217,7 +221,7 @@ def synthesize_xiaoyi_bytes(text: str) -> bytes:
             
             if is_real_japanese:
                 # 🇯🇵 正統日語模式：採用高音甜美版曉伊日語提示音（360Hz 少女高音）
-                ref_audio = r"C:\Users\qiwai\xiaoyi_japanese_ref.wav"
+                ref_audio = REF_VOICE_JA
                 ref_text = "お兄ちゃん、今日も一日頑張ろうね！大好きだよ！"
                 ref_lang = "all_ja"
                 text_lang = "all_ja"
@@ -241,7 +245,7 @@ def synthesize_xiaoyi_bytes(text: str) -> bytes:
                     for k, v in LOANWORDS.items():
                         text = text.replace(k, v)
                         
-                ref_audio = r"C:\Users\qiwai\xiaoyi_girl_ref.wav"
+                ref_audio = REF_VOICE_ZH
                 ref_text = "哇！真的假的？太棒了吧！今天也要一起加油喔！嘿嘿～"
                 ref_lang = "all_zh"
                 text_lang = "zh" if re.search(r'[a-zA-Z]', text) else "all_zh"

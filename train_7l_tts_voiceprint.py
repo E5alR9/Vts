@@ -16,6 +16,8 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+from core.paths import REF_VOICE_ZH, REF_VOICE_ZH_ALT, REF_VOICE_JA  # noqa: F401
+
 from mic_live_plugin.voiceprint_verifier import voiceprint_verifier, safe_print
 
 def train_7l_voiceprint(synthesize_new: bool = False):
@@ -23,11 +25,12 @@ def train_7l_voiceprint(synthesize_new: bool = False):
     safe_print("🎙️ 正在開始 7L 本地 TTS 聲紋特徵提煉與練習...")
     safe_print("=" * 60)
 
-    # 1. 收集本地參考音檔母帶
-    ref_files = [
-        r"C:\Users\qiwai\xiaoyi_girl_ref.wav",
-        r"C:\Users\qiwai\xiaoyi_ref.wav",
-        r"C:\Users\qiwai\xiaoyi_japanese_ref.wav"
+    # 1. 收集本地參考音檔母帶（統一路徑解析，檔案不存在會自動過濾）
+    from core.paths import ref_voices
+    ref_files = ref_voices() or [
+        REF_VOICE_ZH,
+        REF_VOICE_ZH_ALT,
+        REF_VOICE_JA
     ]
     existing_refs = [f for f in ref_files if os.path.exists(f)]
     safe_print(f"📁 找到 {len(existing_refs)} 個 7L 核心母帶檔案: {[os.path.basename(f) for f in existing_refs]}")

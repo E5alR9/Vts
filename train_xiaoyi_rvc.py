@@ -11,6 +11,10 @@ import torch
 import faiss
 from transformers import HubertModel
 
+# 🧭 統一路徑解析（不再寫死原作者電腦）
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from core.paths import GPT_SOVITS_DIR, REF_VOICE_ZH, legacy_or_home
+
 # 確保輸出編碼正確
 try:
     if sys.stdout.encoding.lower() != 'utf-8':
@@ -19,7 +23,8 @@ try:
 except Exception:
     pass
 
-BASE_DIR = r"C:\Users\qiwai"
+# 模型與資料集放在專案內（可隨資料夾一起搬移），不再寫死使用者家目錄
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 WAVS_DIR = os.path.join(BASE_DIR, "dataset", "xiaoyi_7L", "wavs")
 INDEX_DIR = os.path.join(BASE_DIR, "models", "rvc", "indices")
 WEIGHTS_DIR = os.path.join(BASE_DIR, "models", "rvc", "weights")
@@ -92,7 +97,7 @@ def step1_generate_dataset():
     print("🚀 [步驟 1/4] 使用 7L 本地高音 GPT-SoVITS 合成 48 條黃金訓練語料...")
     print("=" * 60)
     
-    gpt_sovits_dir = r"C:\Users\qiwai\GPT-SoVITS"
+    gpt_sovits_dir = GPT_SOVITS_DIR
     if gpt_sovits_dir not in sys.path:
         sys.path.append(gpt_sovits_dir)
         sys.path.append(os.path.join(gpt_sovits_dir, "GPT_SoVITS"))
@@ -109,7 +114,7 @@ def step1_generate_dataset():
     config.bert_base_path = "pretrained_models/chinese-roberta-wwm-ext-large"
     
     tts_pipeline = TTS(config)
-    ref_audio = r"C:\Users\qiwai\xiaoyi_girl_ref.wav"
+    ref_audio = REF_VOICE_ZH
     ref_text = "哇！真的假的？太棒了吧！今天也要一起加油喔！嘿嘿～"
     tts_pipeline.set_ref_audio(ref_audio)
     os.chdir(prev_cwd)

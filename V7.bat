@@ -13,6 +13,9 @@ if %errorlevel% equ 0 (
 
 title 7L AI VTuber
 
+:: 統一切到腳本所在資料夾，確保相對路徑（data/ models/ .env）都能命中
+cd /d "%~dp0"
+
 echo.
 echo =========================================
 echo          7L AI VTuber 啟動中...

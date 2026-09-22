@@ -359,12 +359,9 @@ class VoiceprintVerifier:
         if ref_paths:
             candidates.extend(ref_paths)
 
-        # 預設本地標準 7L 參考音檔母帶
-        default_refs = [
-            r"C:\Users\qiwai\xiaoyi_girl_ref.wav",
-            r"C:\Users\qiwai\xiaoyi_ref.wav",
-            r"C:\Users\qiwai\xiaoyi_japanese_ref.wav"
-        ]
+        # 預設本地標準 7L 參考音檔母帶（統一路徑解析，檔案不存在會自動過濾）
+        from core.paths import ref_voices
+        default_refs = ref_voices()
         for dr in default_refs:
             if os.path.exists(dr) and dr not in candidates:
                 candidates.append(dr)
@@ -374,7 +371,7 @@ class VoiceprintVerifier:
             os.path.join(DATA_DIR, "tts_cache"),
             os.path.join(DATA_DIR, "recent_audio"),
             os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output"),
-            r"C:\Users\qiwai\GPT-SoVITS\output"
+            os.path.join(GPT_SOVITS_DIR, "output")
         ]
         import glob
         for s_dir in search_dirs:
