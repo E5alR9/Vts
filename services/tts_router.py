@@ -377,11 +377,38 @@ async def _synth_elevenlabs(text: str) -> bytes:
     return data
 
 
+# ── CosyVoice3（本地精品 TTS，獨立 venv + localhost 服務）─────────────────────
+# 模型 Fun-CosyVoice3-0.5B（9.3GB、中文韻律開源第一梯隊），跑在
+#   venvs\cosyvoice\Scripts\python.exe services\cosyvoice_server.py --port 9881
+# 啟動約 25~60 秒；單句合成 RTF 約 1.4（比 Kokoro 慢、比 Qwen3-TTS 快）。
+# 服務沒開或逾時 → 拋錯讓引擎鏈降級 kokoro/edge（不中斷直播）。
+COSYVOICE_URL = (os.getenv("COSYVOICE_URL") or "http://127.0.0.1:9881").rstrip("/")
+COSYVOICE_TIMEOUT = float(os.getenv("COSYVOICE_TIMEOUT") or "60")
+
+
+async def _synth_cosyvoice(text: str) -> bytes:
+    lang = detect_language(text)
+    text = _clean_text(text, lang)
+    if not text:
+        return b""
+    import httpx
+    async with httpx.AsyncClient(timeout=COSYVOICE_TIMEOUT) as cli:
+        r = await cli.post(f"{COSYVOICE_URL}/tts", json={"text": text})
+        if r.status_code != 200:
+            detail = r.text[:180]
+            raise RuntimeError(f"cosyvoice HTTP {r.status_code}: {detail}")
+        data = r.content
+    if not data:
+        raise RuntimeError("cosyvoice 回傳空白音訊")
+    return data
+
+
 _ENGINES = {
     "kokoro": _synth_kokoro,
     "edge": _synth_edge,
     "xiaoyi": _synth_xiaoyi,
     "elevenlabs": _synth_elevenlabs,
+    "cosyvoice": _synth_cosyvoice,
 }
 
 
