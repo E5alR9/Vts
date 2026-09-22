@@ -1,4 +1,4 @@
-# 7L AI VTuber — 執行期依賴（本機版，不再從 GitHub 遠端安裝）
+﻿# 7L AI VTuber — 執行期依賴（本機版，不再從 GitHub 遠端安裝）
 # 安裝：python -m pip install -r requirements.txt
 # 顯卡版 PyTorch（CUDA 12.4）請另行安裝：
 #   python -m pip install torch --index-url https://download.pytorch.org/whl/cu124
@@ -50,3 +50,6 @@ tzdata
 EulerApiSdk
 mido                       # 鋼琴模組（piano_engine 模組層無條件 import，缺了直接無法啟動）
 dxcam                      # 畫面截取（Gemini 視覺上下文）
+
+# ── 測試 ───────────────────────────────────────────────────────
+pytest                         # python -m pytest tests -q

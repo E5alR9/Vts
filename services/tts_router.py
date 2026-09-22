@@ -171,7 +171,11 @@ def _clean_text(text: str, lang: str) -> str:
     text = re.sub(r'[⌒☆★♪♡♥✧✦๑•̀ㅂ•́و✧~～]+', '！', text)
     text = text.replace("7L", "小七").replace("7l", "小七")
     text = re.sub(r'[，,]{2,}', '，', text)
-    text = re.sub(r'[！!]{2,}', '！', text).strip(' ，,')
+    text = re.sub(r'[！!]{2,}', '！', text)
+    text = re.sub(r'[？?]{2,}', '？', text)      # TTS 對連續問號會唸得怪，收斂成一個
+    text = re.sub(r'[。]{2,}', '。', text)
+    # ⚠️ 只 strip 逗號：句尾的 ？！。 必須保留，TTS 靠它判語氣
+    text = text.strip(' ，,')
     if lang != "ja":
         for k, v in _LOANWORDS.items():
             text = text.replace(k, v)
