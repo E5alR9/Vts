@@ -39,6 +39,11 @@ data/rag/
 # bat 依賴安裝完成旗標
 .deps_ok
 
+# 第三方原始碼 / 獨立環境（用腳本重建，不入庫）
+third_party/
+venvs/
+pretrained_models/
+
 # vercel 轉發器
 .vercel/
 .env.local
