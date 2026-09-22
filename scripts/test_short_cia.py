@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 import os, sys, subprocess
 
-sys.path.insert(0, r"C:\Users\qiwai")
-sys.path.insert(0, r"C:\Users\qiwai\GPT-SoVITS")
-sys.path.insert(0, r"C:\Users\qiwai\GPT-SoVITS\GPT_SoVITS")
+sys.path.insert(0, os.path.expanduser("~"))
+sys.path.insert(0, os.path.join(os.path.expanduser("~"), "GPT-SoVITS"))
+sys.path.insert(0, os.path.join(os.path.expanduser("~"), "GPT-SoVITS", "GPT_SoVITS"))
 
 import local_xiaoyi_service
 
-HOT_REP_PATH = r"C:\Users\qiwai\GPT-SoVITS\GPT_SoVITS\text\engdict-hot.rep"
+HOT_REP_PATH = os.path.join(os.path.expanduser("~"), "GPT-SoVITS", "GPT_SoVITS", "text", "engdict-hot.rep")
 
 SHORT_CANDIDATES = {
     "short_1_ah0":      "CIALLO CH AH0 r o o",      # 極限短元音 AH0：cia 極度輕巧短促，瞬間滑向 roo
@@ -32,8 +32,8 @@ def generate_short_variation(name, rep_line):
         print(f"❌ [{name}] 合成失敗")
         return None
     
-    wav_path = rf"C:\Users\qiwai\ciallo_{name}.wav"
-    mp3_path = rf"C:\Users\qiwai\ciallo_{name}.mp3"
+    wav_path = os.path.join(os.path.expanduser("~"), f"ciallo_{name}.wav")
+    mp3_path = os.path.join(os.path.expanduser("~"), f"ciallo_{name}.mp3")
     with open(wav_path, "wb") as f:
         f.write(wav_bytes)
     

@@ -28,7 +28,7 @@ CACHE_DIR = os.path.join(SONGS_DIR, "cover_cache")
 os.makedirs(SONGS_DIR, exist_ok=True)
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-FFMPEG_EXE = r"C:\ffmpeg\bin\ffmpeg.exe" if os.path.exists(r"C:\ffmpeg\bin\ffmpeg.exe") else "ffmpeg"
+FFMPEG_EXE = os.getenv("FFMPEG_EXE") or (r"C:\ffmpeg\bin\ffmpeg.exe" if os.path.exists(r"C:\ffmpeg\bin\ffmpeg.exe") else "ffmpeg")
 YT_DLP_EXE = shutil.which("yt-dlp") or "yt-dlp"
 
 def get_safe_filename(name: str) -> str:

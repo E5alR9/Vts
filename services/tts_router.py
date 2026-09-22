@@ -2,7 +2,7 @@ r"""
 🎙️ TTS 路由器 (TTS Router)
 
 🎯 目的：
-   把直播主迴圈的語音合成，從「寫死 C:\Users\qiwai\GPT-SoVITS 的單一引擎」
+   把直播主迴圈的語音合成，從「寫死單一本機 GPT-SoVITS 路徑的單一引擎」
    改成可插拔的引擎鏈，預設走本地小模型 Kokoro-82M (ONNX，約 310MB)。
 
 ⚙️ 引擎優先序（可用環境變數覆寫）：
@@ -281,7 +281,7 @@ async def _synth_edge(text: str) -> bytes:
 
 async def _synth_xiaoyi(text: str) -> bytes:
     """原 GPT-SoVITS 曉伊（需本機有 GPT-SoVITS 安裝，否則拋錯讓鏈降級）"""
-    svc_path = os.getenv("GPT_SOVITS_DIR") or r"C:\Users\qiwai\GPT-SoVITS"
+    svc_path = os.getenv("GPT_SOVITS_DIR") or os.path.join(os.path.expanduser("~"), "GPT-SoVITS")
     if not os.path.isdir(svc_path):
         raise RuntimeError(f"GPT-SoVITS 不存在: {svc_path}")
     import local_xiaoyi_service

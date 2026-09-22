@@ -7,11 +7,11 @@ Runs: feature extraction -> s2 train (SoVITS) -> s1 train (GPT T2S)
 import os, sys, subprocess, shutil
 
 # ── 路徑設定 ────────────────────────────────────────────────
-GPT_SOVITS_DIR  = r"C:\Users\qiwai\GPT-SoVITS"
+GPT_SOVITS_DIR  = os.path.join(os.path.expanduser("~"), "GPT-SoVITS")
 CORE_DIR        = os.path.join(GPT_SOVITS_DIR, "GPT_SoVITS")
 PRETRAIN_DIR    = os.path.join(GPT_SOVITS_DIR, "pretrained_models")
 
-DATA_DIR        = r"C:\Users\qiwai\finetune_data"
+DATA_DIR        = os.path.join(os.path.expanduser("~"), "finetune_data")
 WAV_DIR         = os.path.join(DATA_DIR, "wavs")
 LIST_FILE       = os.path.join(DATA_DIR, "train.list")
 EXP_NAME        = "xiaoyi_finetune"

@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 import os, sys, subprocess
 
-sys.path.insert(0, r"C:\Users\qiwai")
-sys.path.insert(0, r"C:\Users\qiwai\GPT-SoVITS")
-sys.path.insert(0, r"C:\Users\qiwai\GPT-SoVITS\GPT_SoVITS")
+sys.path.insert(0, os.path.expanduser("~"))
+sys.path.insert(0, os.path.join(os.path.expanduser("~"), "GPT-SoVITS"))
+sys.path.insert(0, os.path.join(os.path.expanduser("~"), "GPT-SoVITS", "GPT_SoVITS"))
 
 import local_xiaoyi_service
 
-HOT_REP_PATH = r"C:\Users\qiwai\GPT-SoVITS\GPT_SoVITS\text\engdict-hot.rep"
+HOT_REP_PATH = os.path.join(os.path.expanduser("~"), "GPT-SoVITS", "GPT_SoVITS", "text", "engdict-hot.rep")
 
 CANDIDATES = {
     "A_glide_smooth":       "CIALLO CH Y AA0 L OW1 OW0",       # 滑音連貫：Y半元音平滑過渡，cia極快，llo平滑拖音
@@ -33,8 +33,8 @@ def generate_variation(name, rep_line):
         print(f"❌ [{name}] 合成失敗")
         return None
     
-    wav_path = rf"C:\Users\qiwai\ciallo_{name}.wav"
-    mp3_path = rf"C:\Users\qiwai\ciallo_{name}.mp3"
+    wav_path = os.path.join(os.path.expanduser("~"), f"ciallo_{name}.wav")
+    mp3_path = os.path.join(os.path.expanduser("~"), f"ciallo_{name}.mp3")
     with open(wav_path, "wb") as f:
         f.write(wav_bytes)
     

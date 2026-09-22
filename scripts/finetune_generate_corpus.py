@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import os
 """
 Edge TTS XiaoYi training corpus generator
 Synthesizes audio with zh-CN-XiaoyiNeural -> WAV + train.list for GPT-SoVITS
@@ -7,7 +8,7 @@ Synthesizes audio with zh-CN-XiaoyiNeural -> WAV + train.list for GPT-SoVITS
 import asyncio, os, re, io
 import edge_tts
 
-OUTPUT_DIR   = r"C:\Users\qiwai\finetune_data"
+OUTPUT_DIR   = os.path.join(os.path.expanduser("~"), "finetune_data")
 WAV_DIR      = os.path.join(OUTPUT_DIR, "wavs")
 LIST_FILE    = os.path.join(OUTPUT_DIR, "train.list")
 SPEAKER_NAME = "xiaoyiNeural"

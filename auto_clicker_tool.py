@@ -289,9 +289,9 @@ class MacroParser:
 # Froststrap Korblox Mesh Auto-Replacer
 # ==============================================================================
 
-KORBLOX_SOURCE_FILE = r"C:\Users\qiwai\Downloads\korblox\rightleg.mesh"
-FROSTSTRAP_TARGET_DIR = r"C:\Users\qiwai\AppData\Local\Froststrap\Versions\version-f5a60436d48947d3\content\avatar\meshes"
-FROSTSTRAP_VERSIONS_BASE = r"C:\Users\qiwai\AppData\Local\Froststrap\Versions"
+KORBLOX_SOURCE_FILE = os.path.join(os.path.expanduser("~"), "Downloads", "korblox", "rightleg.mesh")
+FROSTSTRAP_TARGET_DIR = os.path.join(os.path.expanduser("~"), "AppData", "Local", "Froststrap", "Versions", "version-f5a60436d48947d3", "content", "avatar", "meshes")
+FROSTSTRAP_VERSIONS_BASE = os.path.join(os.path.expanduser("~"), "AppData", "Local", "Froststrap", "Versions")
 
 def replace_korblox_mesh(source_mesh: str = KORBLOX_SOURCE_FILE, target_dir: str = FROSTSTRAP_TARGET_DIR) -> tuple:
     """

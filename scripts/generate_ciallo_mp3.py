@@ -2,7 +2,7 @@
 import os, sys, subprocess
 
 # 加入主工作目錄
-sys.path.insert(0, r"C:\Users\qiwai")
+sys.path.insert(0, os.path.expanduser("~"))
 
 import local_xiaoyi_service
 
@@ -15,8 +15,8 @@ def test_synthesis():
         print("❌ 合成失敗，未取得音訊資料！")
         return False
     
-    wav_path = r"C:\Users\qiwai\ciallo_test.wav"
-    mp3_path = r"C:\Users\qiwai\ciallo_test.mp3"
+    wav_path = os.path.join(os.path.expanduser("~"), "ciallo_test.wav")
+    mp3_path = os.path.join(os.path.expanduser("~"), "ciallo_test.mp3")
     
     with open(wav_path, "wb") as f:
         f.write(wav_bytes)

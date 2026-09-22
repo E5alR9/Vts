@@ -10,7 +10,7 @@ os.environ["rmvpe_root"] = os.path.abspath("models/rvc")
 from services.neural_voice_converter import convert_vocal_to_xiaoyi
 from services.auto_cover_pipeline import mix_cover_and_export
 
-FFMPEG = r"C:\ffmpeg\bin\ffmpeg.exe"
+FFMPEG = os.getenv("FFMPEG_EXE") or (r"C:\ffmpeg\bin\ffmpeg.exe" if os.path.exists(r"C:\ffmpeg\bin\ffmpeg.exe") else "ffmpeg")
 
 songs = [
     {
