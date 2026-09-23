@@ -290,7 +290,8 @@
         <option value="openai/gpt-oss-120b">gpt-oss-120b（$0.15 / $0.6）</option>
         <option value="allam-2-7b">allam-2-7b（免費）</option>
       </select>
-      <input type="text" id="playText" placeholder="輸入一句話試試…" style="flex:1" onkeydown="if(event.key==='Enter')playRun()">
+      <input type="text" id="playText" placeholder="輸入一句話試試…（Enter 送出 · 上下文會帶前20則）" style="flex:1" onkeydown="if(event.key==='Enter')playRun()">
+      <button style="flex:none" onclick="clearChat()" title="清除對話與上下文">🧹</button>
       <button class="primary" style="flex:none" id="playBtn" onclick="playRun()">送出</button>
     </div>
   </section>
@@ -343,7 +344,7 @@ function fmtPts(n){
 }
 
 /* ── 身分 ── */
-let ME = null, IS_ADMIN = false, CHART_ROWS = [], SPEED_PTS = [], AKS = [], USE_SCOPE = "me", USE_USER = "", USE_USER_NAME = "", CHECKIN_AWARD = 10;
+let ME = null, IS_ADMIN = false, CHART_ROWS = [], SPEED_PTS = [], AKS = [], USE_SCOPE = "me", USE_USER = "", USE_USER_NAME = "", CHECKIN_AWARD = 10, PLAY_HIST = [];
 function token(){
   return localStorage.getItem("gr_session") || localStorage.getItem("gr_admin_token") || "";
 }
@@ -782,7 +783,14 @@ async function loadLogs(){
     }).join("") || '<tr><td colspan="4" class="muted">尚無請求</td></tr>';
   }catch(e){ $("logRows").innerHTML = `<tr><td colspan="4" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
 }
-/* ── Playground：chat 式即時串流（SSE 逐字 + thinking 灰框 + markdown）── */
+/* ── Playground：chat 式即時串流（SSE 逐字 + thinking 灰框 + markdown + 多輪上下文）── */
+function clearChat(){
+  PLAY_HIST = [];
+  const box = $("playOut");
+  delete box.dataset.started;
+  box.innerHTML = '<div class="msg ai"><div class="bubble muted">🧹 已清除上下文——全新對話，之前的內容不再影響下一句。</div></div>';
+  toast("已清除上下文");
+}
 function md(t){
   try{ return window.marked ? window.marked.parse(t, { breaks:true }) : esc(t); }
   catch{ return esc(t); }
@@ -801,10 +809,12 @@ function addMsg(who, html){
 async function playRun(){
   const text = $("playText").value.trim();
   if(!text) return toast("請輸入一句話", true);
+  $("playText").value = "";                       // 送出即清空輸入框
   const before = ME ? Number(ME.credits) : null;
   const box = $("playOut");
   if(!box.dataset.started){ box.innerHTML = ""; box.dataset.started = "1"; }
   addMsg("user", esc(text));
+  PLAY_HIST.push({ role:"user", content:text });  // 多輪上下文（上限20則）
   const bub = addMsg("ai", '<span class="cursor">▍</span>');
   const btn = $("playBtn");
   if(btn) btn.disabled = true;
@@ -817,7 +827,7 @@ async function playRun(){
     const r = await fetch("/v1/chat/completions", { method:"POST",
       headers:{"Content-Type":"application/json", Authorization:"Bearer "+token()},
       body: JSON.stringify({ model:$("playModel").value, stream:true,
-        messages:[{role:"user", content:text}], max_tokens:1000 }) });
+        messages: PLAY_HIST.slice(-20), max_tokens:1000 }) });   // 帶前20則上下文
     if(!r.ok){
       const j = await r.json().catch(()=>({}));
       throw new Error((j.error&&j.error.message)||("HTTP "+r.status));
@@ -861,8 +871,11 @@ async function playRun(){
     const tail = parts.length ? `<div class="costline">${parts.join(" · ")}</div>` : "";
     bub.innerHTML = (why ? `<div class="reason">🤔 ${esc(why)}</div>` : "") + md(ans) + tail;
     box.scrollTop = box.scrollHeight;
+    if(ans) PLAY_HIST.push({ role:"assistant", content:ans });   // 回應入上下文
     if(IS_ADMIN) loadLogs();
   }catch(e){
+    // 失敗 → 把剛才那句 user 從上下文抽掉，重打才不會疊兩次
+    if(PLAY_HIST.length && PLAY_HIST[PLAY_HIST.length-1].content === text) PLAY_HIST.pop();
     bub.innerHTML = (ans ? md(ans) + "<br>" : "") + `<span style="color:var(--bad)">失敗：${esc(e.message)}</span>`;
   }
   if(btn) btn.disabled = false;
