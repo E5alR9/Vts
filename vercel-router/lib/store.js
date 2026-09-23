@@ -176,26 +176,31 @@ function newInviteCode() {
   return s.slice(0, 4) + "-" + s.slice(4);
 }
 
-/** 計費表：gr:pricing JSON {model: multiplier}；沒有就回預設
- *
- *  倍率 = Groq 官方 input 價 ÷ 基準（gpt-oss-20b $0.075/1M）：
- *    20b  $0.075 → 1x ｜ 120b $0.15 → 2x ｜ qwen3.8 $0.80 → 10x ｜ allam 未定價 → 0.5x
- *  （output 約貴 4~5 倍，但中轉站按 total_tokens 單一倍率簡化計費）
- */
+/** 點數匯率：1,000,000 點 = $1（env POINTS_PER_USD 可覆寫）
+ *  舊制「tokens × 單一倍率」已廢棄 → 改為直接按官方價：(in×input價 + out×output價) 計美元再轉點 */
+const POINTS_PER_USD = Math.max(1, Number(process.env.POINTS_PER_USD) || 10000000);
+
+/** 計費表 = 促銷係數（1 = 官方價直轉；<1 折扣、>1 加價）
+ *  v2 版（__v 標記）：舊的 10/2/1/0.5 倍率表偵測到 __v 不符 → 自動回到預設 ×1 */
 const DEFAULT_PRICING = {
-  "qwen/qwen3.8-27b": 10,
+  "qwen/qwen3.8-27b": 1,
+  "qwen/qwen3-32b": 1,
+  "openai/gpt-oss-120b": 1,
   "openai/gpt-oss-20b": 1,
-  "openai/gpt-oss-120b": 2,
-  "allam-2-7b": 0.5,
+  "allam-2-7b": 1,
 };
+const PRICING_VERSION = 2;
 
 async function getPricing() {
   const k = kv();
   if (!k) return { ...DEFAULT_PRICING };
   try {
     const raw = await k.get("gr:pricing");
-    const p = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {};
-    return { ...DEFAULT_PRICING, ...p };
+    const p = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : null;
+    if (!p || p.__v !== PRICING_VERSION) return { ...DEFAULT_PRICING };   // 舊版倍率表作廢
+    const out = { ...p };
+    delete out.__v;
+    return { ...DEFAULT_PRICING, ...out };
   } catch {
     return { ...DEFAULT_PRICING };
   }
@@ -204,12 +209,25 @@ async function getPricing() {
 async function setPricing(p) {
   const k = kv();
   if (!k) throw new Error("NO_KV");
-  await k.set("gr:pricing", JSON.stringify(p));
+  await k.set("gr:pricing", JSON.stringify({ ...p, __v: PRICING_VERSION }));
 }
 
 function priceFor(pricing, model) {
   const m = Number(pricing[model]);
   return Number.isFinite(m) && m > 0 ? m : 1;
+}
+
+/** 直接按官方價算扣點：
+ *  usd = (pt × input + ct × output) / 1e6 × 促銷係數；轉點後至少 1 點（$0 模型 = 免費0點） */
+function costFor(model, pt, ct, pricing) {
+  const mp = MODEL_PRICES[model];
+  const mult = priceFor(pricing || {}, model);
+  let usd;
+  if (mp) usd = (Math.max(0, pt) * mp.input + Math.max(0, ct) * mp.output) / 1e6;
+  else usd = ((Math.max(0, pt) + Math.max(0, ct)) * 0.075) / 1e6;   // 未列模型 → 按基準價
+  usd *= mult;
+  if (usd <= 0) return 0;
+  return Math.max(1, Math.ceil(usd * POINTS_PER_USD));
 }
 
 /** 請求日誌：gr:logs JSON array（最新在前，只留 100 筆）
@@ -255,14 +273,14 @@ async function ensureMonthlyQuota(users, token) {
   return true;
 }
 
-/** 用量記錄：gr:usage:{yyyymmdd} JSON {token: {tokens, reqs, models:{m:n}}} + user.usedTokens 累加 */
+/** 用量記錄：gr:usage:{yyyymmdd} JSON {token: {tokens(真實), points(扣點), reqs, models}} + user.usedTokens 累加 */
 function dayKey(d) {
   const t = d || new Date();
   const p = (n) => String(n).padStart(2, "0");
   return `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}`;
 }
 
-async function recordUsage(userToken, model, tokens) {
+async function recordUsage(userToken, model, tokens, points) {
   const k = kv();
   if (!k) return;
   const dk = `gr:usage:${dayKey()}`;
@@ -272,8 +290,9 @@ async function recordUsage(userToken, model, tokens) {
       const raw = await k.get(dk);
       day = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {};
     } catch { day = {}; }
-    const e = day[userToken] || { tokens: 0, reqs: 0, models: {} };
-    e.tokens += tokens;
+    const e = day[userToken] || { tokens: 0, points: 0, reqs: 0, models: {} };
+    e.tokens += Math.max(0, Number(tokens) || 0);
+    e.points = (Number(e.points) || 0) + Math.max(0, Number(points) || 0);
     e.reqs += 1;
     e.models[model] = (e.models[model] || 0) + 1;
     day[userToken] = e;
@@ -402,4 +421,4 @@ const MODEL_PRICES = {
   "allam-2-7b":          { input: 0,     output: 0,    note: "未定價（0 計）" },
 };
 
-module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, MODEL_PRICES, logRequest, getLogs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel, getPlans, setPlans, DEFAULT_PLANS, getEvent, setEvent, activeEvent, keyStatHash, recordKeyStat, getKeyStat };
+module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, MODEL_PRICES, POINTS_PER_USD, costFor, logRequest, getLogs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel, getPlans, setPlans, DEFAULT_PLANS, getEvent, setEvent, activeEvent, keyStatHash, recordKeyStat, getKeyStat };

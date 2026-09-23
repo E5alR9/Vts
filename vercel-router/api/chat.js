@@ -87,15 +87,22 @@ function checkAuth(req, res) {
   return null;
 }
 
-/** 從回應 usage 估點數（total_tokens；拿不到時按字數粗估） */
-function estimateCost(body, text) {
+/** 解析回應 usage → {pt, ct}（真實 input/output tokens）；拿不到回 null */
+function parseUsage(text) {
   try {
     const j = JSON.parse(text);
     const u = j.usage || {};
-    if (Number.isFinite(u.total_tokens) && u.total_tokens > 0) return u.total_tokens;
+    const pt = Number(u.prompt_tokens), ct = Number(u.completion_tokens);
+    if (Number.isFinite(pt) && Number.isFinite(ct)) return { pt, ct };
   } catch { /* 非 JSON */ }
+  return null;
+}
+
+/** 串流沒有 usage → 依輸入字數估 input，輸出粗估（VTuber 對話短，誤差可接受） */
+function estimateTokens(body) {
   const input = JSON.stringify(body.messages || body.input || "").length;
-  return Math.max(1, Math.ceil(input / 4) + 50);
+  const pt = Math.max(1, Math.ceil(input / 4));
+  return { pt, ct: Math.max(100, Math.ceil(pt / 2)) };
 }
 
 module.exports = async (req, res) => {
@@ -198,24 +205,26 @@ module.exports = async (req, res) => {
         // （扣點必須在 res.end() 之前完成，否則 x-credits-left 發不出去）
 
         if (wantStream) {
-          // 串流按請求字數預估先扣（header 要在 end 前設）
+          // 串流沒有 usage → 估 input/output 分開計官方價，先扣（header 要在 end 前設）
           if (caller.kind === "user" && caller.user.credits !== -1) {
             try {
               const users = (await store.getUsers()) || {};
               const u = users[caller.user.token];
               if (u && u.credits !== -1) {
-                const cost = Math.ceil(estimateCost(body, "") * store.priceFor(await store.getPricing(), model));
+                const est = estimateTokens(body);
+                const total = est.pt + est.ct;
+                const cost = store.costFor(model, est.pt, est.ct, await store.getPricing());
                 u.credits = Math.max(0, (Number(u.credits) || 0) - cost);
-                u.usedTokens = (Number(u.usedTokens) || 0) + cost;
+                u.usedTokens = (Number(u.usedTokens) || 0) + total;
                 await store.setUsers(users);
                 res.setHeader("x-credits-left", String(u.credits));
-                await store.recordUsage(caller.user.token, model, cost);
+                await store.recordUsage(caller.user.token, model, total, cost);
                 await store.logRequest({ user: caller.user.name || caller.user.token.slice(0, 12),
-                  model, tokens: cost, cost });
+                  model, tokens: total, cost });
               }
             } catch { /* 忽略 */ }
           }
-          try { await store.recordKeyStat(gkey, { tokens: estimateCost(body, "") }); } catch {}
+          try { await store.recordKeyStat(gkey, { tokens: estimateTokens(body).pt + estimateTokens(body).ct }); } catch {}
           res.statusCode = 200;
           res.setHeader("Content-Type", upstream.headers.get("content-type") || "text/event-stream");
           res.setHeader("Cache-Control", "no-cache");
@@ -231,9 +240,11 @@ module.exports = async (req, res) => {
         }
 
         const text = await upstream.text();
-        const tokens = estimateCost(body, text);
-        const cost = Math.ceil(tokens * store.priceFor(await store.getPricing(), model));
-        try { await store.recordKeyStat(gkey, { tokens }); } catch {}
+        const usage = parseUsage(text) || estimateTokens(body);
+        const realTokens = usage.pt + usage.ct;
+        // 直接按官方價：(in×input價 + out×output價) × 促銷係數 × 匯率
+        const cost = store.costFor(model, usage.pt, usage.ct, await store.getPricing());
+        try { await store.recordKeyStat(gkey, { tokens: realTokens }); } catch {}
         // 先扣點再 end（header 必須在 end 之前設，否則發不出去）
         if (caller.kind === "user" && caller.user.credits !== -1) {
           try {
@@ -241,12 +252,12 @@ module.exports = async (req, res) => {
             const u = users[caller.user.token];
             if (u && u.credits !== -1) {
               u.credits = Math.max(0, (Number(u.credits) || 0) - cost);
-              u.usedTokens = (Number(u.usedTokens) || 0) + cost;
+              u.usedTokens = (Number(u.usedTokens) || 0) + realTokens;
               await store.setUsers(users);
               res.setHeader("x-credits-left", String(u.credits));
-              await store.recordUsage(caller.user.token, model, cost);
+              await store.recordUsage(caller.user.token, model, realTokens, cost);
               await store.logRequest({ user: caller.user.name || caller.user.token.slice(0, 12),
-                model, tokens: cost, cost });
+                model, tokens: realTokens, cost });
             }
           } catch { /* 扣點失敗不影響已生成的回應 */ }
         }

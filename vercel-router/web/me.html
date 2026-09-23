@@ -79,8 +79,8 @@
     <div id="chart"></div>
     <div id="chartLbl"></div>
     <div class="muted" style="margin-top:6px">近 7 天用量（tokens / 天，左→右由舊到新）</div>
-    <table><thead><tr><th>日期</th><th>tokens</th><th>請求</th><th id="useCol4">模型</th></tr></thead>
-    <tbody id="useRows"><tr><td colspan="4" class="muted">載入中…</td></tr></tbody></table>
+    <table><thead><tr><th>日期</th><th>tokens</th><th>扣點</th><th>請求</th><th id="useCol4">模型</th></tr></thead>
+    <tbody id="useRows"><tr><td colspan="5" class="muted">載入中…</td></tr></tbody></table>
   </section>
 
   <!-- ════════ API 金鑰 ════════ -->
@@ -104,7 +104,7 @@
     <h2>📘 模型價格表 <small>官方參考價 × 站內倍率 · 扣點 = total_tokens × 倍率</small></h2>
     <table><thead><tr><th>模型</th><th>官方價 $/1M（in / out）</th><th>站內倍率</th><th>說明</th></tr></thead>
     <tbody id="pricePubRows"><tr><td colspan="4" class="muted">載入中…</td></tr></tbody></table>
-    <div class="muted" style="margin-top:8px">實付點數 ＝ total_tokens × 倍率（無底線、無月租）。官方價僅供參考，以 <a href="https://groq.com/pricing" target="_blank" rel="noopener" style="color:var(--acc)">groq.com/pricing</a> 為準；倍率異動以管理頁 💰計費表 為準。</div>
+    <div class="muted" style="margin-top:8px" id="priceFoot">實付點數 ＝ (input數×in價 + output數×out價) ÷ 1M × 倍率 × 匯率（<span id="rateLine">…</span>，無底線、無月租）。官方價僅供參考，以 <a href="https://groq.com/pricing" target="_blank" rel="noopener" style="color:var(--acc)">groq.com/pricing</a> 為準；倍率＝促銷係數，異動以管理頁 💰計費表 為準。</div>
   </section>
 
   <!-- ════════ 帳號 / 點數 ════════ -->
@@ -172,8 +172,8 @@
 
   <!-- ════════ 管理：計費 + 我的邀請碼 ════════ -->
   <section id="secPricing" style="grid-column:span 12">
-    <h2>💰 計費表 <small>官方參考價 × 倍率；扣點 = tokens × 倍率，改完立即生效</small></h2>
-    <table><thead><tr><th>模型</th><th>官方價 $/1M（in / out）</th><th>倍率</th><th>說明</th></tr></thead>
+    <h2>💰 計費表 <small>直接按官方價：扣點 ＝ (input×in價 + output×out價) × 倍率 × 匯率；倍率 = 促銷係數（1=原價），改完立即生效</small></h2>
+    <table><thead><tr><th>模型</th><th>官方價 $/1M（in / out）</th><th>促銷倍率</th><th>說明</th></tr></thead>
     <tbody id="priceRows"><tr><td colspan="4" class="muted">載入中…</td></tr></tbody></table>
     <div style="display:flex;gap:8px;margin-top:8px">
       <button class="primary" onclick="savePricing()">💾 儲存倍率</button>
@@ -476,7 +476,7 @@ async function loadPricing(){
       <td class="code">${esc(m)}</td>
       <td class="muted">${price}</td>
       <td><input type="number" data-pmodel="${esc(m)}" value="${esc(mult)}" min="0.1" max="100" step="0.1" style="max-width:120px"></td>
-      <td class="muted">${o && o.note ? esc(o.note) + " · " : ""}${mult===1?"基準價":mult<1?"便宜 "+mult+"×":"貴 "+mult+"×"}</td>
+      <td class="muted">${o && o.note ? esc(o.note) + " · " : ""}${mult===1?"原價 ×1":mult<1?"促銷 ×"+mult+"（"+Math.round(mult*100)+"%）":"加價 ×"+mult}</td>
     </tr>`;}).join("");
   }catch(e){ $("priceRows").innerHTML = `<tr><td colspan="4" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
 }
@@ -813,14 +813,14 @@ async function loadUsage(){
     const j = await r.json();
     if(!j.ok) throw new Error((j.error&&j.error.message)||"載入失敗");
     const rows = j.usage||[];
-    let tot=0, req=0;
+    let tot=0, req=0, pts=0;
     $("useRows").innerHTML = rows.map(d=>{
-      tot += d.tokens||0; req += d.reqs||0;
+      tot += d.tokens||0; req += d.reqs||0; pts += d.points||0;
       const models = Object.entries(d.models||{}).map(([m,n])=>`${esc(String(m).split("/").pop())}×${n}`).join("、") || "--";
       const act = d.users ? `${esc(d.users)} 帳號 · ` : "";
-      return `<tr><td>${esc(d.day||"")}</td><td>${d.tokens||0}</td><td>${d.reqs||0}</td><td>${act}${models}</td></tr>`;
-    }).join("") || '<tr><td colspan="4" class="muted">尚無用量</td></tr>';
-    $("useTotal").textContent = `共 ${tot} tokens / ${req} 次`;
+      return `<tr><td>${esc(d.day||"")}</td><td>${d.tokens||0}</td><td>${d.points||0}</td><td>${d.reqs||0}</td><td>${act}${models}</td></tr>`;
+    }).join("") || '<tr><td colspan="5" class="muted">尚無用量</td></tr>';
+    $("useTotal").textContent = `共 ${tot} tokens · ${pts} 點 / ${req} 次`;
     const t7 = $("st7tok"), q7 = $("st7req");
     if (t7) t7.textContent = tot;
     if (q7) q7.textContent = req;
@@ -832,7 +832,7 @@ async function loadUsage(){
       return `<div class="b" style="height:${h}px" title="${esc(d.day)}: ${d.tokens||0} tokens / ${d.reqs||0} 次"></div>`;
     }).join("");
     $("chartLbl").innerHTML = days.map(d=>`<span>${esc((d.day||"").slice(5))}</span>`).join("");
-  }catch(e){ $("useRows").innerHTML = `<tr><td colspan="4" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
+  }catch(e){ $("useRows").innerHTML = `<tr><td colspan="5" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
 }
 
 /* ── 模型價格表（用戶可見，唯讀）── */
@@ -842,12 +842,15 @@ async function loadPrices(){
     const j = await r.json();
     if(!j.ok) throw new Error((j.error&&j.error.message)||"載入失敗");
     const mult = j.pricing || {}, pr = j.prices || {};
+    const rate = Number(j.pointsPerUsd) || 10000000;
+    const rl = $("rateLine");
+    if(rl) rl.textContent = `${rate.toLocaleString()} 點 ＝ $1`;
     const models = [...new Set([...Object.keys(mult), ...Object.keys(pr)])];
     $("pricePubRows").innerHTML = models.map(m=>{
       const o = pr[m], x = mult[m];
       const price = o ? `$${o.input} / $${o.output}` : '<span class="muted">未列</span>';
       const chip = x === undefined ? "–" : `×${x}`;
-      const cls = x === undefined ? "" : (x > 2 ? "warn" : "ok");
+      const cls = x === undefined ? "" : (x > 1 ? "warn" : "ok");
       return `<tr>
         <td class="code">${esc(m)}</td>
         <td class="muted">${price}</td>

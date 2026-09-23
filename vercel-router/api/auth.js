@@ -172,7 +172,7 @@ module.exports = async (req, res) => {
     if (action === "pricing") {
       return sendJson(res, 200, { ok: true,
         pricing: await store.getPricing(), prices: store.MODEL_PRICES,
-        defaults: store.DEFAULT_PRICING });
+        defaults: store.DEFAULT_PRICING, pointsPerUsd: store.POINTS_PER_USD });
     }
 
     // ── 我的帳號 ──
