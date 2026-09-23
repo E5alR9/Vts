@@ -137,6 +137,7 @@ module.exports = async (req, res) => {
       const users = (await store.getUsers()) || {};
       const list = Object.entries(users).map(([token, u]) => ({
         token, name: u.name, role: u.role, credits: u.credits,
+        usedTokens: u.usedTokens || 0,
         plan: u.plan || "free", monthlyQuota: u.monthlyQuota || 0,
         disabled: !!u.disabled, createdAt: u.createdAt || "",
       }));

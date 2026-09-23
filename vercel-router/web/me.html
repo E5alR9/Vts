@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Groq Router · 控制台</title>
 <link rel="stylesheet" href="/web/theme.css">
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 </head>
 <body>
 <div class="sidebar" id="sidebar">
@@ -98,9 +99,14 @@
   <!-- ════════ 用量明細（含圖表） ════════ -->
   <section id="secUsage" style="grid-column:span 12">
     <h2>📈 用量明細（近 7 天） <small id="useTotal"></small></h2>
-    <div class="tabs" style="max-width:320px;margin-bottom:10px">
-      <button id="tabMy" class="active" onclick="switchUse('me')">👤 我的用量</button>
-      <button id="tabSite" onclick="switchUse('site')">🌐 全站公開</button>
+    <div class="tabs" style="max-width:470px;margin-bottom:10px">
+      <button id="tabMy" class="active" onclick="switchUse('me')">👤 我的</button>
+      <button id="tabSite" onclick="switchUse('site')">🌐 全站</button>
+      <button id="tabUsers" class="admOnly" style="display:none" onclick="switchUse('user')">👥 用戶</button>
+    </div>
+    <div id="userPick" style="display:none;margin-bottom:10px;gap:8px;align-items:center">
+      <label style="margin:0 8px 0 0;font-size:12.5px;color:var(--dim)">看哪個用戶：</label>
+      <select id="userSel" onchange="pickUser(this.value)" style="max-width:340px"><option value="">載入中…</option></select>
     </div>
     <div id="chart"></div>
     <div id="chartLbl"></div>
@@ -184,8 +190,8 @@
       <button class="primary" onclick="addUser()">＋ 建帳號</button>
     </div>
     </div>
-    <table><thead><tr><th>名稱</th><th>角色</th><th>點數</th><th>token</th><th>操作</th></tr></thead>
-    <tbody id="userRows"><tr><td colspan="5" class="muted">尚未載入</td></tr></tbody></table>
+    <table><thead><tr><th>名稱</th><th>角色</th><th>點數</th><th>累計 tokens</th><th>token</th><th>操作</th></tr></thead>
+    <tbody id="userRows"><tr><td colspan="6" class="muted">尚未載入</td></tr></tbody></table>
   </section>
 
   <!-- ════════ 管理：渠道 ════════ -->
@@ -268,18 +274,20 @@
 
   <!-- ════════ 管理：Playground ════════ -->
   <section id="secPlay" style="grid-column:span 12">
-    <h2>🧪 Playground <small>花自己的點數試模型 · 照官方價即時扣（admin 帳號不扣）</small></h2>
-    <div style="display:flex;gap:8px">
-      <select id="playModel" style="flex:none;max-width:190px">
-        <option value="qwen/qwen3.8-27b">qwen3.8-27b（10x）</option>
-        <option value="openai/gpt-oss-20b">gpt-oss-20b（1x）</option>
-        <option value="openai/gpt-oss-120b">gpt-oss-120b（2x）</option>
-        <option value="allam-2-7b">allam-2-7b（0.5x）</option>
-      </select>
-      <input type="text" id="playText" placeholder="輸入一句話試試…" style="flex:1">
-      <button class="primary" style="flex:none" onclick="playRun()">送出</button>
+    <h2>🧪 Playground <small>即時串流逐字顯示 · 花自己的點數照官方價扣（admin 不扣）</small></h2>
+    <div id="playOut" class="play-chat">
+      <div class="msg ai"><div class="bubble muted">選模型 → 打一句話 → 送出：回應<b>逐字串流</b>出現，思考過程（如有）先顯示在灰框，結束附扣點明細。</div></div>
     </div>
-    <div id="playOut" class="muted" style="margin-top:8px;white-space:pre-wrap;max-height:300px;overflow:auto">在這裡顯示回應…</div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <select id="playModel" style="flex:none;max-width:230px">
+        <option value="qwen/qwen3.8-27b">qwen3.8-27b（$0.8 / $4.0）</option>
+        <option value="openai/gpt-oss-20b">gpt-oss-20b（$0.075 / $0.3）</option>
+        <option value="openai/gpt-oss-120b">gpt-oss-120b（$0.15 / $0.6）</option>
+        <option value="allam-2-7b">allam-2-7b（免費）</option>
+      </select>
+      <input type="text" id="playText" placeholder="輸入一句話試試…" style="flex:1" onkeydown="if(event.key==='Enter')playRun()">
+      <button class="primary" style="flex:none" id="playBtn" onclick="playRun()">送出</button>
+    </div>
   </section>
 
   <!-- ════════ 管理：KEY 壓力表 ════════ -->
@@ -330,7 +338,7 @@ function fmtPts(n){
 }
 
 /* ── 身分 ── */
-let ME = null, IS_ADMIN = false, CHART_ROWS = [], SPEED_PTS = [], AKS = [], USE_SCOPE = "me";
+let ME = null, IS_ADMIN = false, CHART_ROWS = [], SPEED_PTS = [], AKS = [], USE_SCOPE = "me", USE_USER = "", USE_USER_NAME = "";
 function token(){
   return localStorage.getItem("gr_session") || localStorage.getItem("gr_admin_token") || "";
 }
@@ -708,6 +716,7 @@ function renderUsers(list){
     <td>${esc(u.name)}${u.disabled?' <span class="chip bad">停用</span>':""}</td>
     <td><span class="chip ${u.role==="admin"?"warn":""}">${esc(u.role)}</span></td>
     <td>${u.credits===-1?'<span class="chip ok">無限</span>':esc(fmtPts(u.credits))}${sub}</td>
+    <td>${Number(u.usedTokens||0).toLocaleString()}</td>
     <td class="code">${esc(u.token)}</td>
     <td><div class="rowbtns">
       <button onclick="addCredits('${esc(u.token)}')">＋充值</button>
@@ -715,7 +724,8 @@ function renderUsers(list){
       <button onclick="toggleUser('${esc(u.token)}',${u.disabled?"false":"true"})">${u.disabled?"啟用":"停用"}</button>
       <button onclick="resetPw('${esc(u.token)}','${esc(u.name)}')">密碼</button>
       <button class="danger" onclick="deleteUser('${esc(u.token)}','${esc(u.name)}')">刪除</button>
-    </div></td></tr>`;}).join("") || '<tr><td colspan="5" class="muted">尚無帳號</td></tr>';
+    </div></td></tr>`;}).join("") || '<tr><td colspan="6" class="muted">尚無帳號</td></tr>';
+  if($("userSel")) fillUserSel();   // 用量「👥 用戶」下拉同步最新名單
 }
 async function setSub(tok, name){
   const plan = prompt(`「${name}」的方案名（free=無訂閱）：`, "pro");
@@ -767,29 +777,85 @@ async function loadLogs(){
     }).join("") || '<tr><td colspan="4" class="muted">尚無請求</td></tr>';
   }catch(e){ $("logRows").innerHTML = `<tr><td colspan="4" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
 }
+/* ── Playground：chat 式即時串流（SSE 逐字 + thinking 灰框 + markdown）── */
+function md(t){
+  try{ return window.marked ? window.marked.parse(t, { breaks:true }) : esc(t); }
+  catch{ return esc(t); }
+}
+function addMsg(who, html){
+  const d = document.createElement("div");
+  d.className = "msg " + who;
+  const b = document.createElement("div");
+  b.className = "bubble";
+  if(html) b.innerHTML = html;
+  d.appendChild(b);
+  $("playOut").appendChild(d);
+  $("playOut").scrollTop = $("playOut").scrollHeight;
+  return b;
+}
 async function playRun(){
   const text = $("playText").value.trim();
   if(!text) return toast("請輸入一句話", true);
-  $("playOut").textContent = "思考中…";
   const before = ME ? Number(ME.credits) : null;
+  const box = $("playOut");
+  if(!box.dataset.started){ box.innerHTML = ""; box.dataset.started = "1"; }
+  addMsg("user", esc(text));
+  const bub = addMsg("ai", '<span class="cursor">▍</span>');
+  const btn = $("playBtn");
+  if(btn) btn.disabled = true;
+  let ans = "", why = "";
+  const paint = (cursor) => {
+    bub.innerHTML = (why ? `<div class="reason">🤔 ${esc(why)}</div>` : "") + md(ans) + (cursor ? '<span class="cursor">▍</span>' : "");
+    box.scrollTop = box.scrollHeight;
+  };
   try{
     const r = await fetch("/v1/chat/completions", { method:"POST",
       headers:{"Content-Type":"application/json", Authorization:"Bearer "+token()},
-      body: JSON.stringify({ model:$("playModel").value,
-        messages:[{role:"user", content:text}], max_tokens:300 }) });
-    const j = await r.json();
-    if(!r.ok) throw new Error((j.error&&j.error.message)||r.status);
-    let out = (j.choices&&j.choices[0]&&j.choices[0].message.content) || JSON.stringify(j).slice(0,500);
-    const leftH = r.headers.get("x-credits-left");
-    if (leftH !== null && before !== null && before !== -1) {
+      body: JSON.stringify({ model:$("playModel").value, stream:true,
+        messages:[{role:"user", content:text}], max_tokens:1000 }) });
+    if(!r.ok){
+      const j = await r.json().catch(()=>({}));
+      throw new Error((j.error&&j.error.message)||("HTTP "+r.status));
+    }
+    const leftH = r.headers.get("x-credits-left");   // 串流：扣點 header 在 body 前就到了
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "", over = false;
+    while(!over){
+      const { value, done } = await reader.read();
+      if(done) over = true;
+      buf += dec.decode(value || new Uint8Array(), { stream: !done });
+      const lines = buf.split("\n");
+      buf = lines.pop() || "";
+      for(const raw of lines){
+        const s = raw.trim();
+        if(!s.startsWith("data:")) continue;
+        const p = s.slice(5).trim();
+        if(p === "[DONE]"){ over = true; break; }
+        try{
+          const j = JSON.parse(p);
+          const d = (j.choices && j.choices[0] && j.choices[0].delta) || {};
+          why += d.reasoning_content || d.reasoning || "";
+          ans += d.content || "";
+        }catch{}
+      }
+      if(ans || why) paint(true);
+    }
+    // 收尾：扣點明細
+    let tail = "";
+    if(leftH !== null && before !== null && before !== -1){
       const left = Number(leftH);
       const spent = Math.max(0, before - left);
-      out += `\n\n💰 本次扣 ${fmtPts(spent)} 點（1點＝US$1，照官方價算）· 餘額 ${fmtPts(left)} 點`;
+      tail = `<div class="costline">💰 本次扣 <b>${fmtPts(spent)}</b> 點（1點＝US$1，照官方價算）· 餘額 <b>${fmtPts(left)}</b> 點</div>`;
       setCredits(left);
     }
-    $("playOut").textContent = out;
+    bub.innerHTML = (why ? `<div class="reason">🤔 ${esc(why)}</div>` : "") + md(ans) + tail;
+    box.scrollTop = box.scrollHeight;
     if(IS_ADMIN) loadLogs();
-  }catch(e){ $("playOut").textContent = "失敗："+e.message; }
+  }catch(e){
+    bub.innerHTML = (ans ? md(ans) + "<br>" : "") + `<span style="color:var(--bad)">失敗：${esc(e.message)}</span>`;
+  }
+  if(btn) btn.disabled = false;
 }
 async function loadChannels(){
   try{
@@ -976,20 +1042,40 @@ async function loadKeyPress(){
   }catch(e){ $("kpRows").innerHTML = `<tr><td colspan="6" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
 }
 
-/* ── 我的 / 全站 兩個頁籤 ── */
+/* ── 我的 / 全站 / 個人用戶 三個頁籤 ── */
 function switchUse(s){
   USE_SCOPE = s;
   $("tabMy").classList.toggle("active", s === "me");
   $("tabSite").classList.toggle("active", s === "site");
+  const tu = $("tabUsers"); if(tu) tu.classList.toggle("active", s === "user");
+  $("userPick").style.display = (s === "user") ? "flex" : "none";
+  if(s === "user"){
+    fillUserSel();
+    if(!USE_USER && LAST_USERS.length){ pickUser(LAST_USERS[0].token); return; }   // 沒選過 → 自動選第一個
+    if(!USE_USER) return;                                                           // 名單還沒到 → 等 renderUsers 後再選
+  }
   loadUsage();
   loadSpeed();
+}
+function pickUser(v){
+  const u = LAST_USERS.find(x => x.token === v);
+  USE_USER = v || ""; USE_USER_NAME = u ? u.name : "";
+  loadUsage(); loadSpeed();
+}
+function fillUserSel(){
+  const sel = $("userSel"); if(!sel) return;
+  sel.innerHTML = LAST_USERS.map(u =>
+    `<option value="${esc(u.token)}" ${u.token === USE_USER ? "selected" : ""}>${esc(u.name)}（${fmtPts(u.credits)} 點 · ${Number(u.usedTokens || 0).toLocaleString()} tok）</option>`
+  ).join("") || '<option value="">尚無帳號</option>';
+  if(!USE_USER && LAST_USERS.length){ USE_USER = LAST_USERS[0].token; USE_USER_NAME = LAST_USERS[0].name; }
 }
 
 /* ── 用量明細：表 + 圖 + 7 天卡（兩個角色同一條路）── */
 async function loadUsage(){
-  const c4 = $("useCol4"); if (c4) c4.textContent = USE_SCOPE === "site" ? "活躍 / 模型" : "模型";
+  const c4 = $("useCol4"); if (c4) c4.textContent = USE_SCOPE === "me" ? "模型" : "活躍 / 模型";
   try{
-    const r = await fetch(`/api/auth?action=usage&days=7&scope=${USE_SCOPE}`, { headers:{Authorization:"Bearer "+token()} });
+    const u = USE_SCOPE === "user" && USE_USER ? `&token=${encodeURIComponent(USE_USER)}` : "";
+    const r = await fetch(`/api/auth?action=usage&days=7${u || `&scope=${USE_SCOPE}`}`, { headers:{Authorization:"Bearer "+token()} });
     const j = await r.json();
     if(!j.ok) throw new Error((j.error&&j.error.message)||"載入失敗");
     const rows = j.usage||[];
@@ -1000,7 +1086,8 @@ async function loadUsage(){
       const act = d.users ? `${esc(d.users)} 帳號 · ` : "";
       return `<tr><td>${esc(d.day||"")}</td><td>${d.tokens||0}</td><td>${d.points||0}</td><td>${d.reqs||0}</td><td>${act}${models}</td></tr>`;
     }).join("") || '<tr><td colspan="5" class="muted">尚無用量</td></tr>';
-    $("useTotal").textContent = `${USE_SCOPE === "site" ? "🌐 全站公開" : "👤 我的"} · 共 ${tot} tokens · ${pts} 點 / ${req} 次`;
+    const scopeLabel = USE_SCOPE === "site" ? "🌐 全站公開" : USE_SCOPE === "user" ? `👥 ${USE_USER_NAME || "指定用戶"}` : "👤 我的";
+    $("useTotal").textContent = `${scopeLabel} · 共 ${tot} tokens · ${pts} 點 / ${req} 次`;
     const t7 = $("st7tok"), q7 = $("st7req");
     if (t7) t7.textContent = tot;
     if (q7) q7.textContent = req;
@@ -1010,7 +1097,7 @@ async function loadUsage(){
     drawUsageChart(days);
     // 每模型統計表
     const scope = $("mstatScope");
-    if(scope) scope.textContent = USE_SCOPE === "site" ? "🌐 全站公開" : "👤 我的用量";
+    if(scope) scope.textContent = USE_SCOPE === "site" ? "🌐 全站公開" : USE_SCOPE === "user" ? `👥 ${USE_USER_NAME || "指定用戶"} 的用量` : "👤 我的用量";
     const ms = j.mstat || [];
     $("mstatRows").innerHTML = ms.map(s=>{
       const nm = String(s.model).split("/").pop();
@@ -1110,7 +1197,8 @@ function drawSpeedChart(pts){
   const every = Math.max(1, Math.ceil(n / 8));
   $("speedChartLbl").innerHTML = SPEED_PTS.map((p, i) => `<span>${i % every === 0 ? hhmm(p.t) : ""}</span>`).join("");
   const avg = Math.round(vals.reduce((s, v) => s + v, 0) / n);
-  $("speedTotal").textContent = `${USE_SCOPE === "site" ? "🌐 全站" : "👤 我的"} · 近 ${n} 筆 · 平均 ${avg} t/s · 峰值 ${Math.round(max)} t/s`;
+  const scopeTag = USE_SCOPE === "site" ? "🌐 全站" : USE_SCOPE === "user" ? `👥 ${USE_USER_NAME || "用戶"}` : "👤 我的";
+  $("speedTotal").textContent = `${scopeTag} · 近 ${n} 筆 · 平均 ${avg} t/s · 峰值 ${Math.round(max)} t/s`;
   box.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <linearGradient id="spArea" x1="0" y1="0" x2="0" y2="1">
@@ -1129,7 +1217,8 @@ function drawSpeedChart(pts){
 }
 async function loadSpeed(){
   try{
-    const r = await fetch(`/api/auth?action=speed&scope=${USE_SCOPE}`, { headers:{Authorization:"Bearer "+token()} });
+    const extra = USE_SCOPE === "user" && USE_USER ? `&token=${encodeURIComponent(USE_USER)}` : "";
+    const r = await fetch(`/api/auth?action=speed&scope=${USE_SCOPE === "user" ? "me" : USE_SCOPE}${extra}`, { headers:{Authorization:"Bearer "+token()} });
     const j = await r.json();
     drawSpeedChart((j.ok && j.points) || []);
   }catch{ drawSpeedChart([]); }

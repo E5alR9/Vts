@@ -180,12 +180,15 @@ module.exports = async (req, res) => {
         defaults: store.DEFAULT_PRICING, pointsPerUsd: store.POINTS_PER_USD });
     }
 
-    // ── 實測速度：scope=site 全站公開；scope=me（或預設非admin）看自己的 ──
+    // ── 實測速度：scope=site 全站；token= 指定用戶(admin 鑽取)；其餘看自己 ──
     if (action === "speed") {
       const arr = await store.getSpeed();
       const scope = url.searchParams.get("scope");
-      const wantSite = scope === "site" || (a.kind === "admin" && scope !== "me");
-      const out = wantSite ? arr : arr.filter((e) => e.u === (a.user ? a.user.token : ""));
+      const qTok = url.searchParams.get("token");
+      let out;
+      if (qTok && a.kind === "admin") out = arr.filter((e) => e.u === qTok);
+      else if (scope === "site" || (a.kind === "admin" && scope !== "me")) out = arr;
+      else out = arr.filter((e) => e.u === (a.user ? a.user.token : ""));
       return sendJson(res, 200, { ok: true, points: out.slice(-300) });   // 圖表最多載300點
     }
 
