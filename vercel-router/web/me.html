@@ -283,6 +283,12 @@ const $ = id => document.getElementById(id);
 function toast(msg, err){ const d=document.createElement("div"); d.textContent=msg; if(err)d.className="err";
   $("toast").appendChild(d); setTimeout(()=>d.remove(), err?5200:2600); }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+/** 點數格式（1點=US$1）：整數照顯示，小數留4位 */
+function fmtPts(n){
+  if (n === -1) return "無限";
+  const v = Math.round(Number(n) * 10000) / 10000;
+  return v.toLocaleString(undefined, { maximumFractionDigits: 4 });
+}
 
 /* ── 身分 ── */
 let ME = null, IS_ADMIN = false, CHART_ROWS = [], SPEED_PTS = [], AKS = [];
@@ -382,7 +388,7 @@ async function deleteAk(id){
   }catch(e){ toast("失敗："+e.message, true); }
 }
 function renderKv(u){
-  const credits = u.credits===-1 ? "無限" : u.credits;
+  const credits = fmtPts(u.credits);
   $("kvMe").innerHTML = [
     ["名稱", u.name], ["角色", u.role], ["點數", credits],
     ["累計用量", (u.usedTokens||0)+" tokens"],
@@ -391,7 +397,7 @@ function renderKv(u){
 }
 function setCredits(c){
   if (ME) ME.credits = c;
-  const disp = c===-1 ? "無限" : c;
+  const disp = fmtPts(c);
   const sc = $("stCredits"); if (sc) sc.textContent = disp;
   const hc = $("hdrCredits"); if (hc) hc.textContent = `👤 ${ME ? ME.name : ""} · 點數 ${disp}`;
   if (ME) renderKv(ME);
@@ -637,7 +643,7 @@ function renderUsers(list){
     return `<tr>
     <td>${esc(u.name)}${u.disabled?' <span class="chip bad">停用</span>':""}</td>
     <td><span class="chip ${u.role==="admin"?"warn":""}">${esc(u.role)}</span></td>
-    <td>${u.credits===-1?'<span class="chip ok">無限</span>':esc(u.credits)}${sub}</td>
+    <td>${u.credits===-1?'<span class="chip ok">無限</span>':esc(fmtPts(u.credits))}${sub}</td>
     <td class="code">${esc(u.token)}</td>
     <td><div class="rowbtns">
       <button onclick="addCredits('${esc(u.token)}')">＋充值</button>
@@ -669,7 +675,7 @@ async function addCredits(tok){
   const v = prompt("充值點數（可負數扣減）：", "10000");
   if(v===null) return;
   try{ const j = await api("users.add-credits",{token:tok, delta:Number(v)});
-    toast("目前點數："+j.credits); loadAll();
+    toast("目前點數："+fmtPts(j.credits)); loadAll();
   }catch(e){ toast("失敗："+e.message, true); }
 }
 async function toggleUser(tok, disabled){
@@ -701,6 +707,7 @@ async function playRun(){
   const text = $("playText").value.trim();
   if(!text) return toast("請輸入一句話", true);
   $("playOut").textContent = "思考中…";
+  const before = ME ? Number(ME.credits) : null;
   try{
     const r = await fetch("/v1/chat/completions", { method:"POST",
       headers:{"Content-Type":"application/json", Authorization:"Bearer "+token()},
@@ -708,7 +715,15 @@ async function playRun(){
         messages:[{role:"user", content:text}], max_tokens:300 }) });
     const j = await r.json();
     if(!r.ok) throw new Error((j.error&&j.error.message)||r.status);
-    $("playOut").textContent = (j.choices&&j.choices[0]&&j.choices[0].message.content) || JSON.stringify(j).slice(0,500);
+    let out = (j.choices&&j.choices[0]&&j.choices[0].message.content) || JSON.stringify(j).slice(0,500);
+    const leftH = r.headers.get("x-credits-left");
+    if (leftH !== null && before !== null && before !== -1) {
+      const left = Number(leftH);
+      const spent = Math.max(0, before - left);
+      out += `\n\n💰 本次扣 ${fmtPts(spent)} 點（1點＝US$1，照官方價算）· 餘額 ${fmtPts(left)} 點`;
+      setCredits(left);
+    }
+    $("playOut").textContent = out;
     if(IS_ADMIN) loadLogs();
   }catch(e){ $("playOut").textContent = "失敗："+e.message; }
 }

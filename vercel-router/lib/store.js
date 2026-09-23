@@ -176,9 +176,10 @@ function newInviteCode() {
   return s.slice(0, 4) + "-" + s.slice(4);
 }
 
-/** 點數匯率：1,000,000 點 = $1（env POINTS_PER_USD 可覆寫）
- *  舊制「tokens × 單一倍率」已廢棄 → 改為直接按官方價：(in×input價 + out×output價) 計美元再轉點 */
-const POINTS_PER_USD = Math.max(1, Number(process.env.POINTS_PER_USD) || 10000000);
+/** 點數匯率：1 點 = US$1（1:1 · 使用者指定；env POINTS_PER_USD 可覆寫）
+ *  計費 = 實際美元價直接扣（保留6位小數，不再進位到整數）——
+ *  一發小對話 ≈ $0.00007 = 0.00007 點，餘額不會被整數進位打爆 */
+const POINTS_PER_USD = Number(process.env.POINTS_PER_USD) || 1;
 
 /** 計費表 = 促銷係數（1 = 官方價直轉；<1 折扣、>1 加價）
  *  版本標記 __v：不符即作廢回預設 ×1（v3 = 對齊 docs 現行11模型；涵蓋舊10/2/1倍率表） */
@@ -233,7 +234,8 @@ function costFor(model, pt, ct, pricing) {
   else usd = ((Math.max(0, pt) + Math.max(0, ct)) * 0.075) / 1e6;   // 未列模型 → 按基準價
   usd *= mult;
   if (usd <= 0) return 0;
-  return Math.max(1, Math.ceil(usd * POINTS_PER_USD));
+  const pts = usd * POINTS_PER_USD;                       // 1:1 → pts = usd
+  return Math.max(0.000001, Math.round(pts * 1e6) / 1e6); // 小數6位精準扣，最小單位 $0.000001
 }
 
 /** 請求日誌：gr:logs JSON array（最新在前，只留 100 筆）
