@@ -1,6 +1,6 @@
 {
   "name": "aivtuber-yt",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "YouTube Live chat for AI VTubers: resolve channel to live stream, poll chat messages, no API key needed",
   "main": "src/index.js",
   "bin": {
