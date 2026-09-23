@@ -47,6 +47,19 @@ td.code{font-family:Consolas,monospace;word-break:break-all}
 #toast div.err{background:#2a1518;border-color:#6e2b2b;color:#ff9d97}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:12.5px}
 .kv div:nth-child(odd){color:var(--dim)}
+/* ── 儀表板 ── */
+#secDash{grid-column:span 12}
+#secLogin{grid-column:span 12}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+.stat{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.stat .v{font-size:22px;font-weight:700;color:var(--acc)}
+.stat .l{font-size:11.5px;color:var(--dim);margin-top:2px}
+.stat.warn .v{color:var(--warn)} .stat.bad .v{color:var(--bad)}
+#chart{display:flex;align-items:flex-end;gap:6px;height:120px;padding:8px 4px 0;border-bottom:1px solid var(--line)}
+#chart .b{flex:1;background:linear-gradient(180deg,var(--acc),#1f6f7a);border-radius:4px 4px 0 0;min-height:3px;position:relative;cursor:default}
+#chart .b:hover{filter:brightness(1.3)}
+#chartLbl{display:flex;gap:6px;font-size:10.5px;color:var(--dim)}
+#chartLbl span{flex:1;text-align:center;overflow:hidden;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -59,10 +72,23 @@ td.code{font-family:Consolas,monospace;word-break:break-all}
   <button onclick="loadAll()">↻ 重新整理</button>
 </header>
 <main>
+  <section id="secDash">
+    <h2>📊 今日營運 <small id="dashDate"></small></h2>
+    <div class="stats" id="dashStats">
+      <div class="stat"><div class="v">--</div><div class="l">今日 tokens</div></div>
+      <div class="stat"><div class="v">--</div><div class="l">今日請求</div></div>
+      <div class="stat"><div class="v">--</div><div class="l">帳號數</div></div>
+      <div class="stat"><div class="v">--</div><div class="l">可用 keys</div></div>
+    </div>
+    <div id="chart"></div>
+    <div id="chartLbl"></div>
+    <div class="muted" style="margin-top:6px">近 7 天用量（tokens / 天）</div>
+  </section>
+
   <section id="secLogin">
-    <h2>🔑 管理員登入 <small>ADMIN_TOKEN（只存瀏覽器 localStorage，不上傳別處）</small></h2>
+    <h2>🔑 登入方式 <small>已登入 session 優先；ADMIN_TOKEN 是最高後門</small></h2>
     <div style="display:flex;gap:8px">
-      <input type="text" id="adminToken" placeholder="貼上 ADMIN_TOKEN…" autocomplete="off">
+      <input type="text" id="adminToken" placeholder="貼上 ADMIN_TOKEN 直連（緊急用）…" autocomplete="off">
       <button class="primary" style="flex:none" onclick="saveToken()">連線</button>
       <button style="flex:none" onclick="clearToken()">登出</button>
     </div>
@@ -92,7 +118,10 @@ td.code{font-family:Consolas,monospace;word-break:break-all}
       <div><label>名稱</label><input type="text" id="newUserName" placeholder="例如：小夏子"></div>
       <div><label>角色</label><select id="newUserRole"><option value="user">user（受點數限制）</option><option value="admin">admin（全權限）</option></select></div>
       <div><label>初始點數（tokens）</label><input type="number" id="newUserCredits" value="10000" min="-1"></div>
-      <div style="display:flex;align-items:flex-end"><button class="primary" onclick="addUser()">＋ 建帳號</button></div>
+    <div style="display:flex;gap:8px;margin-top:6px">
+      <input type="text" id="userFilter" placeholder="🔍 搜尋名稱…" style="max-width:280px" oninput="renderUsers()">
+      <button class="primary" onclick="addUser()">＋ 建帳號</button>
+    </div>
     </div>
     <table><thead><tr><th>名稱</th><th>角色</th><th>點數</th><th>token</th><th>操作</th></tr></thead>
     <tbody id="userRows"><tr><td colspan="5" class="muted">尚未載入</td></tr></tbody></table>
@@ -153,8 +182,35 @@ async function loadAll(){
       ["ADMIN_TOKEN", st.hasAdminToken ? "已設" : "未設"],
     ].map(([k,v])=>`<div>${esc(k)}</div><div>${esc(v)}</div>`).join("");
     renderKeys(keys); renderUsers(users.users||[]);
+    renderDash(st, users.users||[]);
+    loadUsage(); loadInvites();
   }catch(e){ $("kvdot").className="dot"; $("kvtext").textContent="連線失敗";
     toast("載入失敗："+e.message, true); }
+}
+let ALL_USERS = [];
+async function renderDash(st, users){
+  ALL_USERS = users;
+  try{
+    const r = await fetch("/api/auth?action=usage&days=7", { headers:{Authorization:"Bearer "+token()} });
+    const j = await r.json();
+    const days = (j.usage||[]).slice().reverse();
+    const today = days[days.length-1] || {tokens:0, reqs:0};
+    const cards = [
+      [today.tokens||0, "今日 tokens", ""],
+      [today.reqs||0, "今日請求", ""],
+      [st.users||0, "帳號數", ""],
+      [(st.envKeys||0)+(st.managedKeys||0), "可用 keys", ""],
+    ];
+    $("dashDate").textContent = today.day || "";
+    $("dashStats").innerHTML = cards.map(([v,l,c])=>
+      `<div class="stat ${c}"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
+    const max = Math.max(1, ...days.map(d=>d.tokens||0));
+    $("chart").innerHTML = days.map(d=>{
+      const h = Math.max(3, Math.round((d.tokens||0)/max*110));
+      return `<div class="b" style="height:${h}px" title="${esc(d.day)}: ${d.tokens||0} tokens / ${d.reqs||0} 次"></div>`;
+    }).join("");
+    $("chartLbl").innerHTML = days.map(d=>`<span>${esc((d.day||"").slice(5))}</span>`).join("");
+  }catch(e){ $("dashStats").innerHTML = `<div class="muted">用量載入失敗</div>`; }
 }
 function renderKeys(j){
   const rows = [];
@@ -186,7 +242,9 @@ async function removeKey(id){
   catch(e){ toast("失敗："+e.message, true); }
 }
 function renderUsers(list){
-  $("userRows").innerHTML = list.map(u=>`<tr>
+  const q = ($("userFilter") && $("userFilter").value.trim().toLowerCase()) || "";
+  const shown = q ? (list||[]).filter(u=>(u.name||"").toLowerCase().includes(q)) : (list||[]);
+  $("userRows").innerHTML = shown.map(u=>`<tr>
     <td>${esc(u.name)}${u.disabled?' <span class="chip bad">停用</span>':""}</td>
     <td><span class="chip ${u.role==="admin"?"warn":""}">${esc(u.role)}</span></td>
     <td>${u.credits===-1?'<span class="chip ok">無限</span>':esc(u.credits)}</td>
