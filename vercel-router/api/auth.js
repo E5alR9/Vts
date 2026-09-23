@@ -40,7 +40,8 @@ function parseBody(req) {
 
 function cleanUser(token, u) {
   return { token: token || "", name: u.name, role: u.role, credits: u.credits,
-    usedTokens: u.usedTokens || 0, disabled: !!u.disabled, createdAt: u.createdAt || "" };
+    usedTokens: u.usedTokens || 0, disabled: !!u.disabled, createdAt: u.createdAt || "",
+    checkinLog: Array.isArray(u.checkinLog) ? u.checkinLog : [] };
 }
 
 module.exports = async (req, res) => {
@@ -132,6 +133,7 @@ module.exports = async (req, res) => {
       }
       const award = Math.max(1, Number(process.env.CHECKIN_CREDITS) || 100);
       u.lastCheckin = today;
+      u.checkinLog = [...(Array.isArray(u.checkinLog) ? u.checkinLog : []), today].slice(-90);
       if (u.credits !== -1) u.credits = (Number(u.credits) || 0) + award;
       await store.setUsers(users);
       return sendJson(res, 200, { ok: true, checked: true, award, credits: u.credits,

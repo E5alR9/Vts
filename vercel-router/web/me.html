@@ -34,6 +34,14 @@
     <h2>📈 近 7 天走勢 <small id="dashTotal"></small></h2>
     <div id="chart"></div>
     <div id="chartLbl"></div>
+    <h2 style="margin-top:18px">📅 簽到日曆 <small id="calInfo">連續 0 天 · 本月 0 天</small></h2>
+    <div class="cal-h">
+      <button class="cal-nav" onclick="calNav(-1)" aria-label="上個月">‹</button>
+      <span id="calTitle">–</span>
+      <button class="cal-nav" onclick="calNav(1)" aria-label="下個月">›</button>
+      <span class="muted">🟦 已簽到 · ○ 今天</span>
+    </div>
+    <div class="cal-grid" id="calGrid"></div>
     <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
       <button class="primary" onclick="checkin()">📅 每日簽到領點數</button>
       <button onclick="location.hash='#/api'">🔑 取得 API 金鑰</button>
@@ -120,6 +128,49 @@ async function cpText(id, msg){
   catch{ toast("複製失敗，請手動選取", true); }
 }
 
+/* ── 簽到日曆 ── */
+let CHECKIN = [];
+const now = new Date();
+let calYear = now.getFullYear(), calMonth = now.getMonth();
+const pad2 = n => String(n).padStart(2, "0");
+function ds(y, m, d){ return `${y}-${pad2(m + 1)}-${pad2(d)}`; }
+function renderCal(){
+  const today = ds(now.getFullYear(), now.getMonth(), now.getDate());
+  const set = new Set(CHECKIN);
+  const startDow = new Date(calYear, calMonth, 1).getDay();
+  const daysIn = new Date(calYear, calMonth + 1, 0).getDate();
+  $("calTitle").textContent = `${calYear} 年 ${calMonth + 1} 月`;
+  let html = ["日","一","二","三","四","五","六"].map(d => `<div class="dow">${d}</div>`).join("");
+  for (let i = 0; i < startDow; i++) html += `<div></div>`;
+  for (let d = 1; d <= daysIn; d++) {
+    const s = ds(calYear, calMonth, d);
+    const cls = ["day"];
+    if (set.has(s)) cls.push("on");
+    if (s === today) cls.push("today");
+    if (s > today) cls.push("mute");
+    html += `<div class="${cls.join(" ")}">${d}</div>`;
+  }
+  $("calGrid").innerHTML = html;
+  // 連續天數：從今天（或昨天，若今天還沒簽）往回數
+  let streak = 0;
+  const cur = new Date(now);
+  if (!set.has(today)) cur.setDate(cur.getDate() - 1);
+  for (;;) {
+    const s = ds(cur.getFullYear(), cur.getMonth(), cur.getDate());
+    if (!set.has(s)) break;
+    streak++; cur.setDate(cur.getDate() - 1);
+  }
+  const mCount = CHECKIN.filter(s =>
+    s.startsWith(`${calYear}-${pad2(calMonth + 1)}`)).length;
+  $("calInfo").textContent = `連續 ${streak} 天 · 本月 ${mCount} 天`;
+}
+function calNav(delta){
+  calMonth += delta;
+  if (calMonth < 0) { calMonth = 11; calYear--; }
+  if (calMonth > 11) { calMonth = 0; calYear++; }
+  renderCal();
+}
+
 /* ── 側欄多頁路由（section DOM 搬移，同 admin）── */
 const PAGES = { dash:["secDash"], usage:["secUsage"], api:["secApi"], account:["secAccount"] };
 const PAGE_TITLE = { dash:"儀表板", usage:"用量明細", api:"API 金鑰", account:"帳號 / 點數" };
@@ -187,6 +238,7 @@ console.log(await res.json());`;
       ["註冊時間", u.createdAt ? u.createdAt.slice(0,10) : "--"],
     ].map(([k,v])=>`<div>${esc(k)}</div><div>${esc(v)}</div>`).join("");
     if(u.token) fillSnippets(u.token);
+    CHECKIN = Array.isArray(u.checkinLog) ? u.checkinLog : [];
 
     const uj = await (await fetch("/api/auth?action=usage&days=7",{headers:{Authorization:"Bearer "+ses}})).json();
     const rows = uj.usage||[];
@@ -210,6 +262,7 @@ console.log(await res.json());`;
   }catch(e){
     $("kvMe").innerHTML = `<div>錯誤</div><div>${esc(e.message)}</div>`;
   }
+  renderCal();
   buildPages();
 })();
 </script>
