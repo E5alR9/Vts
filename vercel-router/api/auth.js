@@ -297,6 +297,58 @@ module.exports = async (req, res) => {
           : `已恢復自動續約：${until || "到期日"} 到期自動扣月費續30天` });
     }
 
+    // ── Playground 對話 Session（一直保留；類 Codex/opencode：清單30則×每則200則×單則2萬字，365天）──
+    if (action.startsWith("chats.")) {
+      if (!a.user) return sendJson(res, 400, { ok: false, error: { message: "此身分需帳號" } });
+      const users = (await store.getUsers()) || {};
+      const uu = users[a.user.token];
+      if (!uu || uu.disabled) return sendJson(res, 403, { ok: false, error: { message: "帳號已停用" } });
+      let all = await store.getChats(a.user.token);
+      if (action === "chats.list") {
+        return sendJson(res, 200, { ok: true, chats: all.map((c) => ({
+          id: c.id, title: c.title, model: c.model || "",
+          createdAt: c.createdAt || "", updatedAt: c.updatedAt || "",
+          msgCount: (c.messages || []).length })) });
+      }
+      if (action === "chats.get") {
+        const c = all.find((x) => x.id === String(body.id || ""));
+        if (!c) return sendJson(res, 404, { ok: false, error: { message: "找不到對話" } });
+        return sendJson(res, 200, { ok: true, chat: c });
+      }
+      if (action === "chats.save") {
+        const msgs = (Array.isArray(body.messages) ? body.messages : [])
+          .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+          .map((m) => ({ role: m.role, content: String(m.content).slice(0, 20000) }))
+          .slice(-200);
+        if (!msgs.length) return sendJson(res, 400, { ok: false, error: { message: "沒有訊息" } });
+        const now = new Date().toISOString();
+        let id = String(body.id || "").trim();
+        let c = id ? all.find((x) => x.id === id) : null;
+        if (!c) {
+          id = "c_" + require("crypto").randomBytes(5).toString("hex");
+          let title = String(body.title || "").trim().slice(0, 60);
+          if (!title) { const fu = msgs.find((m) => m.role === "user"); title = fu ? fu.content.slice(0, 40) : "新對話"; }
+          c = { id, title, model: String(body.model || ""), createdAt: now, updatedAt: now, messages: msgs };
+          all.unshift(c);
+        } else {
+          c.updatedAt = now;
+          if (body.title) c.title = String(body.title).slice(0, 60);
+          if (body.model) c.model = String(body.model);
+          c.messages = msgs;
+        }
+        all.sort((x, y) => String(y.updatedAt).localeCompare(String(x.updatedAt)));
+        all = all.slice(0, 30);
+        await store.setChats(a.user.token, all);
+        return sendJson(res, 200, { ok: true, id: c.id, title: c.title });
+      }
+      if (action === "chats.delete") {
+        all = all.filter((x) => x.id !== String(body.id || ""));
+        await store.setChats(a.user.token, all);
+        return sendJson(res, 200, { ok: true });
+      }
+      return sendJson(res, 400, { ok: false, error: { message: "未知 action: " + action } });
+    }
+
     // ── 我的 API 金鑰（一帳號多把子金鑰，同錢包同額度；主金鑰=帳號token不可刪）──
     if (action === "ak.create" || action === "ak.toggle" || action === "ak.delete") {
       if (!a.user) return sendJson(res, 400, { ok: false, error: { message: "此身分不用 API 金鑰" } });

@@ -427,12 +427,12 @@ async function getUsage(days) {
  *  月補=每月「加發」(不覆寫餘額) · rewardMult=簽到/推薦倍率 · __v 版本遷移 */
 const DEFAULT_PLANS = {
   free:  { label: "Free",  monthlyQuota: 0,    rewardMult: 1,   fee: 0,    h5: 0,     wk: 0,     disc: 1 },
-  plus:  { label: "Plus",  monthlyQuota: 30,   rewardMult: 1.5, fee: 20,   h5: 1,     wk: 5,     disc: 0.95 },
-  pro:   { label: "Pro",   monthlyQuota: 150,  rewardMult: 2,   fee: 100,  h5: 5,     wk: 25,    disc: 0.9 },
-  max:   { label: "Max",   monthlyQuota: 900,  rewardMult: 3,   fee: 500,  h5: 25,    wk: 125,   disc: 0.85 },
-  ultra: { label: "Ultra", monthlyQuota: 3500, rewardMult: 5,   fee: 2000, h5: 100,   wk: 500,   disc: 0.8 },
+  plus:  { label: "Plus",  monthlyQuota: 30,   rewardMult: 1.5, fee: 20,   h5: 2,     wk: 10,    disc: 0.95 },
+  pro:   { label: "Pro",   monthlyQuota: 150,  rewardMult: 2,   fee: 100,  h5: 10,    wk: 50,    disc: 0.9 },
+  max:   { label: "Max",   monthlyQuota: 900,  rewardMult: 3,   fee: 500,  h5: 50,    wk: 250,   disc: 0.85 },
+  ultra: { label: "Ultra", monthlyQuota: 3500, rewardMult: 5,   fee: 2000, h5: 200,   wk: 1000,  disc: 0.8 },
 };
-const PLANS_VERSION = 5;   // v5: 上限重標定（120/週→5/週等，太鬆根本碰不到）
+const PLANS_VERSION = 6;   // v6: 週上限=月費/2 → 月含額≈2×月費（比直接付明顯划算；v5的週≈月費=沒優勢）
 
 async function getPlans() {
   const k = kv();
@@ -625,4 +625,23 @@ async function getSpeed() {
   } catch { return []; }
 }
 
-module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, dayKey, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, MODEL_PRICES, MODEL_SPECS, POINTS_PER_USD, costFor, logRequest, getLogs, logUserReq, getUserReqs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel, getPlans, setPlans, DEFAULT_PLANS, activePlanOf, planCapsFor, maybeRenew, addHourlySpend, hourlySpend, streakDays, streakMult, getEvent, setEvent, activeEvent, keyStatHash, recordKeyStat, getKeyStat, recordSpeed, getSpeed };
+/** Playground 對話 sessions：gr:chats:{usr_token} array（最新在前，30則/365天，一直保留） */
+async function getChats(userToken) {
+  const k = kv();
+  if (!k) return [];
+  try {
+    const raw = await k.get("gr:chats:" + userToken);
+    const arr = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+}
+async function setChats(userToken, all) {
+  const k = kv();
+  if (!k) throw new Error("NO_KV");
+  await k.set("gr:chats:" + userToken, JSON.stringify(all.slice(0, 30)), { ex: 365 * 86400 });
+}
+
+/** Playground 對話 Session（一直保留；自動標題=首句；清單30則×每則80則×單則2萬字）── */
+async function _chatsPlaceholder() {}
+
+module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, dayKey, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, MODEL_PRICES, MODEL_SPECS, POINTS_PER_USD, costFor, logRequest, getLogs, logUserReq, getUserReqs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel, getPlans, setPlans, DEFAULT_PLANS, activePlanOf, planCapsFor, maybeRenew, addHourlySpend, hourlySpend, streakDays, streakMult, getEvent, setEvent, activeEvent, keyStatHash, recordKeyStat, getKeyStat, recordSpeed, getSpeed, getChats, setChats };
