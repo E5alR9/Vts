@@ -774,6 +774,50 @@ async def api_set_memory_capacity(request):
     except Exception as e:
         return web.json_response({"ok": False, "error": str(e)}, status=500)
 
+async def api_get_settings(request):
+    """控制台 .env 設定：讀取白名單表單（機密只回 secret_info，不回值）"""
+    try:
+        from core.env_config import read_settings
+    except Exception as e:
+        return web.json_response({"ok": False, "error": f"設定模組載入失敗: {e}"}, status=500)
+    try:
+        return web.json_response({"ok": True, "settings": read_settings()})
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def api_save_settings(request):
+    """控制台 .env 設定：寫入（動 .env 之前 update_settings 會自動備份上一版）"""
+    try:
+        body = await request.json()
+        updates = body.get("settings") if isinstance(body, dict) and "settings" in body else body
+        if not isinstance(updates, dict):
+            return web.json_response({"ok": False, "error": "settings 必須是 {key: value} 物件"}, status=400)
+        from core.env_config import update_settings
+        applied, restart, errors = update_settings({str(k): ("" if v is None else str(v)) for k, v in updates.items()})
+        if errors and not applied:
+            return web.json_response({"ok": False, "applied": [], "restart": [], "errors": errors}, status=400)
+        if restart:
+            broadcast_event("settings_saved", {"applied": applied, "restart": restart,
+                                               "message": "⚠️ 部分設定需重啟 V7 才生效"})
+        return web.json_response({"ok": True, "applied": applied, "restart": restart, "errors": errors,
+                                  "backup": ".env.backup"})
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def api_download_env_backup(request):
+    """下載上一版 .env（寫入前的自動備份；不存在回 404）"""
+    try:
+        from core.env_config import ENV_PATH
+        backup = ENV_PATH + ".backup"
+        if not os.path.exists(backup):
+            return web.json_response({"ok": False, "error": "尚無備份（改過一次設定才會有）"}, status=404)
+        return web.FileResponse(backup, headers={"Content-Disposition": "attachment; filename=.env.backup"})
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+
 async def api_send_message(request):
     """手動發送訊息/指令給 7L"""
     try:
@@ -1298,6 +1342,9 @@ async def start_web_dashboard(
     app.router.add_get("/api/tools/history", api_get_tool_history)
     app.router.add_post("/api/tools/execute", api_execute_tool)
     app.router.add_post("/api/tools/clear_history", api_clear_tool_history)
+    app.router.add_get("/api/settings", api_get_settings)
+    app.router.add_post("/api/settings", api_save_settings)
+    app.router.add_get("/api/settings/backup", api_download_env_backup)
     app.router.add_post("/api/restart", api_restart)
     app.router.add_post("/api/shutdown", api_shutdown)
 

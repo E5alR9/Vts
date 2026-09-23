@@ -229,6 +229,21 @@ img.vision{width:100%;border-radius:8px;border:1px solid var(--line);background:
     </div>
   </section>
 
+  <!-- 系統設定（.env） -->
+  <section id="secSettings">
+    <h2>⚙️ 系統設定 <small id="setCount">.env 白名單，直改即上線</small></h2>
+    <div id="setForm" class="muted">載入中…</div>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button class="primary" onclick="saveSettings()">💾 儲存設定</button>
+      <button onclick="loadSettings(true)">重新整理</button>
+      <button onclick="downloadEnvBackup()">⬇ 下載上一版備份</button>
+    </div>
+    <div class="muted" style="margin-top:8px" id="setHint">
+      🔁 標示「需重啟」的設定要重啟 V7 才生效；其餘儲存後立即生效。
+      機密欄留空 = 不修改。每次儲存前會自動把上一版備份成 <code>.env.backup</code>。
+    </div>
+  </section>
+
   <!-- 心流 -->
   <section id="secMind" class="wide">
     <h2>🧘 Mind-Stream 心流看板</h2>
@@ -700,12 +715,100 @@ $("btnSend").onclick = sendChat;
 $("chatText").addEventListener("keydown", e=>{ if(e.key==="Enter" && (e.ctrlKey||e.metaKey)) sendChat(); });
 $("btnMic").onclick = toggleMic;
 $("btnSleep").onclick = toggleSleep;
+/* ── 系統設定（.env 白名單，直改即上線）──────────────────────── */
+let SETTINGS = [];
+async function loadSettings(quiet){
+  try{
+    const j = await api("/api/settings");
+    SETTINGS = j.settings || [];
+    $("setCount").textContent = SETTINGS.length + " 項可編輯";
+    renderSettings();
+    if(!quiet) toast("設定已讀取");
+  }catch(e){ $("setForm").innerHTML = `<div class="muted">載入失敗：${esc(e.message)}</div>`; }
+}
+function settingField(s){
+  const id = "set_" + s.key;
+  if(s.secret){
+    const info = s.secret_info || {};
+    return `<label>${esc(s.label)}${s.restart ? " 🔁需重啟" : ""}
+      <span class="chip">${info.set ? ("已設 · 長度 " + info.len + " · " + esc(info.prefix)) : "未設定"}</span></label>
+      <input type="text" id="${id}" data-skey="${esc(s.key)}" data-skind="secret"
+        placeholder="留空 = 不修改；要換鍵才填新值" value="" autocomplete="off">`;
+  }
+  if(s.type === "bool"){
+    return `<div class="switch" style="border:none;padding:4px 0">
+      <div class="txt"><div class="nm">${esc(s.label)}</div></div>
+      <div class="toggle ${s.value==="1"?"on":""}" id="${id}" data-skey="${esc(s.key)}" data-skind="bool"
+        data-sval="${s.value==="1"?"1":"0"}" onclick="toggleSetting(this)" title="點擊切換"></div></div>`;
+  }
+  if(s.type === "choice" && s.choices){
+    const opts = s.choices.map(c=>`<option value="${esc(c)}"${c===s.value?" selected":""}>${esc(c)}</option>`).join("");
+    return `<label>${esc(s.label)}${s.restart ? " 🔁需重啟" : ""}</label>
+      <select id="${id}" data-skey="${esc(s.key)}" data-skind="str">${opts}</select>`;
+  }
+  const t = (s.type === "int" || s.type === "float") ? "number" : "text";
+  const step = s.type === "float" ? ' step="0.05"' : "";
+  return `<label>${esc(s.label)}${s.restart ? " 🔁需重啟" : ""}</label>
+    <input type="${t}" id="${id}" data-skey="${esc(s.key)}" data-skind="str" value="${esc(s.value)}"${step}>`;
+}
+function renderSettings(){
+  const groups = [
+    ["🎙️ 語音", s=>s.key.startsWith("TTS_") || s.key.startsWith("COSY") || s.key.startsWith("ELEVEN_")],
+    ["📺 直播輸入", s=>s.key.startsWith("TWITCH") || s.key.startsWith("YOUTUBE")],
+    ["🚦 行為開關（免重啟）", s=>["OPERATOR_INPUT","OPERATOR_SPEECH","GROQ_REQUESTS_PER_MINUTE"].includes(s.key)],
+    ["🧠 LLM / 網路", s=>s.key.startsWith("GROQ_TEXT") || s.key.startsWith("WEB_")],
+    ["🔑 金鑰（只寫不讀）", s=>!!s.secret],
+  ];
+  const used = new Set();
+  $("setForm").innerHTML = groups.map(([title, fn])=>{
+    const list = SETTINGS.filter(s=>!used.has(s.key) && fn(s));
+    list.forEach(s=>used.add(s.key));
+    if(!list.length) return "";
+    return `<label style="color:var(--acc);font-size:13px;margin-top:10px">${title}</label>`
+      + list.map(settingField).join("");
+  }).join("") + (SETTINGS.some(s=>!used.has(s.key))
+    ? `<label style="color:var(--acc);font-size:13px;margin-top:10px">其他</label>`
+      + SETTINGS.filter(s=>!used.has(s.key)).map(settingField).join("") : "");
+}
+function toggleSetting(el){
+  const on = el.dataset.sval !== "1";
+  el.dataset.sval = on ? "1" : "0";
+  el.classList.toggle("on", on);
+}
+async function saveSettings(){
+  const updates = {};
+  document.querySelectorAll("[data-skey]").forEach(el=>{
+    const k = el.dataset.skey, kind = el.dataset.skind;
+    if(kind === "bool") updates[k] = el.dataset.sval === "1" ? "1" : "0";
+    else updates[k] = (el.value || "").trim();
+  });
+  try{
+    const j = await api("/api/settings","POST",updates);
+    const msg = `已套用 ${j.applied.length} 項` +
+      (j.restart && j.restart.length ? `；⚠️ ${j.restart.join("、")} 需重啟才生效` : "；全部即時生效");
+    toast((j.errors && Object.keys(j.errors).length ? "⚠️ 部分失敗：" + JSON.stringify(j.errors) + " / " : "") + msg,
+      !!(j.errors && Object.keys(j.errors).length));
+    loadSettings(true); refreshStatus();
+  }catch(e){ toast("儲存失敗："+e.message, true); }
+}
+async function downloadEnvBackup(){
+  try{
+    const r = await fetch("/api/settings/backup");
+    if(!r.ok){ const j = await r.json().catch(()=>({})); return toast("下載失敗：" + (j.error || r.status), true); }
+    const blob = await r.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = ".env.backup"; a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+    toast("已下載上一版備份");
+  }catch(e){ toast("下載失敗："+e.message, true); }
+}
+
 $("toolFilter").addEventListener("input", renderTools);
 
 /* ── 啟動 ──────────────────────────────────────────── */
 (async function boot(){
   connectWS();
-  await Promise.all([refreshStatus(), loadSwitches(), loadMemory(true), loadTools(), loadPrompts()]);
+  await Promise.all([refreshStatus(), loadSwitches(), loadMemory(true), loadTools(), loadPrompts(), loadSettings(true)]);
   refreshVision();
   setInterval(refreshVision, 5000);
   setInterval(refreshStatus, 15000);        // WS 斷線時的備援輪詢
