@@ -309,7 +309,7 @@ async function recordUsage(userToken, model, tokens, points) {
     else if (typeof prev === "number") e.models[model] = { r: prev + 1, tk: tkAdd };
     else { prev.r = (prev.r || 0) + 1; prev.tk = (prev.tk || 0) + tkAdd; }
     day[userToken] = e;
-    await k.set(dk, JSON.stringify(day), { ex: 90 * 86400 });  // 留 90 天
+    await k.set(dk, JSON.stringify(day), { ex: 365 * 86400 });  // 留 365 天（~1KB/天，零壓力）
   } catch { /* 用量記錄失敗不影響回應 */ }
 }
 
@@ -317,7 +317,7 @@ async function recordUsage(userToken, model, tokens, points) {
 async function getUsage(days) {
   const k = kv();
   if (!k) return null;
-  const n = Math.max(1, Math.min(90, Number(days) || 7));
+  const n = Math.max(1, Math.min(365, Number(days) || 7));   // 最多回看365天
   const out = [];
   const now = new Date();
   for (let i = 0; i < n; i++) {
@@ -462,7 +462,7 @@ const MODEL_SPECS = {
   "canopylabs/orpheus-arabic-saudi":    { tps: null, rpm: 250, tpm: 50000, limits: "50K TPM · 250 RPM", ctx: 4000, maxOut: 50000, file: "-", note: "TTS · $40/1M字元" },
 };
 
-/** 實測速度環：gr:speed JSON array（最多2,000筆、滾動保留90天，有流量就一直累積）· {t, model, tokens, tps, u} */
+/** 實測速度環：gr:speed JSON array（最多5,000筆、滾動保留365天，有流量就一直累積）· {t, model, tokens, tps, u} */
 async function recordSpeed(e) {
   const k = kv();
   if (!k) return;
@@ -475,7 +475,7 @@ async function recordSpeed(e) {
     } catch { arr = []; }
     arr.push({ t: Date.now(), model: e.model, tokens: e.tokens,
       tps: Math.round((Number(e.tps) || 0) * 10) / 10, u: e.u || "" });
-    await k.set("gr:speed", JSON.stringify(arr.slice(-2000)), { ex: 90 * 86400 });   // 留90天·2000筆上限
+    await k.set("gr:speed", JSON.stringify(arr.slice(-5000)), { ex: 365 * 86400 });   // 留365天·5000筆上限
   } catch { /* 速度記錄失敗不影響回應 */ }
 }
 
