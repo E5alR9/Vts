@@ -203,7 +203,7 @@
     <tbody id="planCmpRows"><tr><td colspan="7" class="muted">載入中…</td></tr></tbody></table>
     <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap" id="planBtns"></div>
     <div id="planRenew" style="margin-top:8px"></div>
-    <div class="muted" style="margin-top:8px">訂閱＝30天制：付點數 → 期間 <b>API 吃到飽</b>（5h/週窗口是上限，完全不動餘額），到期自動回 Free 照官方價扣；隨時可降回 Free（不退費）。</div>
+    <div class="muted" style="margin-top:8px">訂閱＝30天制：付點數 → 期間 <b>API 吃到飽</b>（5h/週窗口是上限，完全不動餘額），到期自動回 Free 照官方價扣；隨時可降回 Free（不退費）。<br><b>月補</b>＝訂閱期間「每月自動入帳」的回饋點數（月補30＞月費20＝淨賺10），留到降級/到期後可花；<b>月費</b>＝30天的入場費。額度設計＝<b>週上限≈月費等值</b>：一個月剛好打滿就回本，重度用量一定撞牆（429等滾動）。</div>
   </section>
 
   <!-- ════════ 管理：帳號管理 ════════ -->
@@ -463,7 +463,7 @@ async function loadPlan(){
       ["每週上限", j.caps.wk ? `${fmtPts(j.caps.wk)} 點${j.ev ? ` ×${j.ev.mult} 活動中` : ""}` : "–"],
       ["本月 API 消耗", `${fmtPts(j.monthSpend)} 點（＝US$${fmtPts(j.monthSpend)}）`],
       ["本週已用", `${fmtPts(j.usedWk)} / ${j.caps.wk ? fmtPts(j.caps.wk) : "∞"} 點`],
-      ["月補 / 月費", `${fmtPts(j.caps.monthlyQuota)} / ${fmtPts(j.fee)} 點`],
+      ["月補 · 月費", `${fmtPts(j.caps.monthlyQuota)} 點/月 · ${fmtPts(j.fee)} 點/30天`],
       ["計費模式", j.active ? "吃到飽：訂閱期間 API 完全不動點數（5h/週額滿 → 429 等滾動）" : "純付費：照官方價扣點、無窗口"],
     ].map(([k,v])=>`<div>${esc(k)}</div><div>${esc(v)}</div>`).join("");
     const p5 = j.caps.h5 > 0 ? Math.min(100, j.used5 / j.caps.h5 * 100) : 0;
