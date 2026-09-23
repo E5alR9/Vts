@@ -1157,17 +1157,6 @@ async function loadReqDetail(){
   }catch(e){ $("reqRows").innerHTML = `<tr><td colspan="5" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
 }
 
-/* ── 清除舊錯誤紀錄（僅管理員）── */
-async function purgeHistory(){
-  if(!confirm("⚠️ 確定清除所有舊用量/請求紀錄？\n\n· 舊匯率扣點（如704點/發）、tokens當點數記的錯誤資料全部刪除\n· 所有帳號 usedTokens 歸零\n· 統計從現在重算（不可復原）")) return;
-  if(!confirm("最後確認：真的清空？")) return;
-  try{
-    const j = await api("usage.purge");
-    toast(`已清除 ${j.removed} 天用量 + 請求日誌 · ${j.usersReset} 帳號累計歸零 ✅`);
-    loadUsage();
-  }catch(e){ toast("失敗："+e.message, true); }
-}
-
 /* ── 用量折線圖（SVG：漸層面積＋節點＋數值；切頁/縮放重畫）── */
 function drawUsageChart(rows){
   CHART_ROWS = rows || [];
