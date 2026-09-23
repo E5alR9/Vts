@@ -163,7 +163,7 @@ module.exports = async (req, res) => {
       try { const ev = store.activeEvent(await store.getEvent()); if (ev) mult *= Number(ev.mult) || 1; } catch {}
       try { const plans = await store.getPlans(); mult *= Number((plans[u.plan || "free"] || {}).rewardMult) || 1; } catch {}
       const rawAward = Number(process.env.CHECKIN_CREDITS);
-      const award = ((Number.isFinite(rawAward) && rawAward > 0) ? rawAward : 1) * mult;   // 預設 1 點/天（1點=US$1）；env 可設含小數
+      const award = ((Number.isFinite(rawAward) && rawAward > 0) ? rawAward : 10) * mult;   // 預設 10 點/天（1點=US$1）；env 可設含小數
       u.lastCheckin = today;
       u.checkinLog = [...healCheckinLog(u), today].slice(-90);
       if (u.credits !== -1) u.credits = (Number(u.credits) || 0) + award;
