@@ -267,6 +267,33 @@ async function getLogs() {
   }
 }
 
+/** 逐筆請求明細（個人）：gr:ureq:{usr_token} array（最新在前，留200筆/365天）
+ *  entry = {t, model, tokens, cost, key} */
+async function logUserReq(userToken, entry) {
+  const k = kv();
+  if (!k) return;
+  try {
+    let arr = [];
+    try {
+      const raw = await k.get("gr:ureq:" + userToken);
+      arr = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : [];
+      if (!Array.isArray(arr)) arr = [];
+    } catch { arr = []; }
+    arr.unshift({ t: Date.now(), ...entry });
+    await k.set("gr:ureq:" + userToken, JSON.stringify(arr.slice(0, 200)), { ex: 365 * 86400 });
+  } catch { /* 失敗不影響回應 */ }
+}
+
+async function getUserReqs(userToken) {
+  const k = kv();
+  if (!k) return [];
+  try {
+    const raw = await k.get("gr:ureq:" + userToken);
+    const arr = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+}
+
 /** 訂閱制：當月首次使用自動補點
  *  user.plan: 'free'（無）| 方案名；user.monthlyQuota: 每月額度；user.quotaReset: 'YYYY-MM'
  *  回傳 true 表示本月已重置（補過點） */
@@ -489,4 +516,4 @@ async function getSpeed() {
   } catch { return []; }
 }
 
-module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, MODEL_PRICES, MODEL_SPECS, POINTS_PER_USD, costFor, logRequest, getLogs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel, getPlans, setPlans, DEFAULT_PLANS, getEvent, setEvent, activeEvent, keyStatHash, recordKeyStat, getKeyStat, recordSpeed, getSpeed };
+module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, MODEL_PRICES, MODEL_SPECS, POINTS_PER_USD, costFor, logRequest, getLogs, logUserReq, getUserReqs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel, getPlans, setPlans, DEFAULT_PLANS, getEvent, setEvent, activeEvent, keyStatHash, recordKeyStat, getKeyStat, recordSpeed, getSpeed };

@@ -180,6 +180,21 @@ module.exports = async (req, res) => {
         defaults: store.DEFAULT_PRICING, pointsPerUsd: store.POINTS_PER_USD });
     }
 
+    // ── 逐筆請求明細（個人200筆；scope=site 全局日誌；admin 可帶 token 鑽取）──
+    if (action === "reqdetail") {
+      const scope = url.searchParams.get("scope");
+      if (scope === "site") {
+        const logs = await store.getLogs();
+        return sendJson(res, 200, { ok: true, rows: logs.map((e) => ({
+          t: e.t, model: e.model, tokens: e.tokens, cost: e.cost,
+          user: e.user || "", key: e.key || "" })) });
+      }
+      const qTok = url.searchParams.get("token");
+      const tok = (qTok && a.kind === "admin") ? qTok : (a.user ? a.user.token : null);
+      if (!tok) return sendJson(res, 200, { ok: true, rows: [] });
+      return sendJson(res, 200, { ok: true, rows: await store.getUserReqs(tok) });
+    }
+
     // ── 實測速度：scope=site 全站；token= 指定用戶(admin 鑽取)；其餘看自己 ──
     if (action === "speed") {
       const arr = await store.getSpeed();

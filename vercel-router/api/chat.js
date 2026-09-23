@@ -224,6 +224,8 @@ module.exports = async (req, res) => {
                 await store.logRequest({ user: caller.user.name || caller.user.token.slice(0, 12),
                   key: caller.sub ? caller.sub.name : undefined,
                   model, tokens: total, cost });
+                await store.logUserReq(caller.user.token, { model, tokens: total, cost,
+                  key: caller.sub ? caller.sub.name : "" });
               }
             } catch { /* 忽略 */ }
           }
@@ -276,6 +278,8 @@ module.exports = async (req, res) => {
               await store.logRequest({ user: caller.user.name || caller.user.token.slice(0, 12),
                 key: caller.sub ? caller.sub.name : undefined,
                 model, tokens: realTokens, cost });
+              await store.logUserReq(caller.user.token, { model, tokens: realTokens, cost,
+                key: caller.sub ? caller.sub.name : "" });
             }
           } catch { /* 扣點失敗不影響已生成的回應 */ }
         }

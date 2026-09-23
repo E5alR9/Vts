@@ -275,6 +275,35 @@ module.exports = async (req, res) => {
       return sendJson(res, 200, { ok: true, logs });
     }
 
+    // ── 清除舊錯誤紀錄（舊匯率扣點、tokens當點數記的遺留資料）——僅管理員 ──
+    if (action === "usage.purge") {
+      const k = store.kv();
+      if (!k) return sendJson(res, 503, { ok: false, error: { message: "無 KV" } });
+      const p = (n) => String(n).padStart(2, "0");
+      const keys = [];
+      for (let i = 0; i < 400; i++) {                   // 覆蓋365天窗口+餘裕
+        const d = new Date(Date.now() - i * 86400000);
+        keys.push(`gr:usage:${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`);
+      }
+      let removed = 0;
+      try {
+        removed = Number(await k.del(keys)) || 0;        // 批量 del（1個命令，避開30s上限）
+      } catch (e1) {
+        for (let i = 0; i < keys.length; i += 50) {      // 退路：分批50
+          try { removed += Number(await k.del(keys.slice(i, i + 50))) || 0; } catch {}
+        }
+      }
+      try { await k.del("gr:logs"); } catch {}           // 舊請求日誌（含舊匯率成本）
+      let zapped = 0;
+      try {                                             // usedTokens 是舊制混單位垃圾 → 歸零
+        const users = (await store.getUsers()) || {};
+        for (const u of Object.values(users)) { if (u.usedTokens) { u.usedTokens = 0; zapped++; } }
+        await store.setUsers(users);
+      } catch {}
+      return sendJson(res, 200, { ok: true, removed, usersReset: zapped,
+        note: "舊用量/請求日誌已清除、usedTokens 歸零；速度環與KEY統計保留，統計從現在重算" });
+    }
+
     // ── 渠道（多組 key、權重、模型範圍）──
     if (action === "channels") {
       const chs = (await store.getChannels()) || {};

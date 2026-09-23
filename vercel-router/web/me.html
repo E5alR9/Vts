@@ -108,6 +108,7 @@
       <label style="margin:0 8px 0 0;font-size:12.5px;color:var(--dim)">看哪個用戶：</label>
       <select id="userSel" onchange="pickUser(this.value)" style="max-width:340px"><option value="">載入中…</option></select>
     </div>
+    <button class="danger admOnly" style="display:none;margin-bottom:10px" onclick="purgeHistory()">🧹 清除舊錯誤紀錄（舊匯率/tokens當點數的遺留）</button>
     <div id="chart"></div>
     <div id="chartLbl"></div>
     <div class="muted" style="margin-top:6px">近 7 天用量（tokens / 天，左→右由舊到新）</div>
@@ -117,6 +118,10 @@
     <table><thead><tr><th>模型</th><th>7天 tokens</th><th>7天請求</th><th>目前 RPM</th><th>平均 token/s</th></tr></thead>
     <tbody id="mstatRows"><tr><td colspan="5" class="muted">載入中…</td></tr></tbody></table>
     <div class="muted" style="margin-top:6px">7天 tokens/請求＝用量統計（舊資料未拆分者為0）；RPM＝最近60秒請求（速度環）；token/s＝速度環內該模型平均實測吞吐。admin＝全站，用戶＝自己的。</div>
+    <h2 style="margin-top:18px">📋 逐筆請求明細 <small id="reqScope">跟隨頁籤</small></h2>
+    <table><thead><tr><th>時間</th><th>模型</th><th>tokens</th><th>扣點</th><th id="reqCol5">金鑰</th></tr></thead>
+    <tbody id="reqRows"><tr><td colspan="5" class="muted">載入中…</td></tr></tbody></table>
+    <div class="muted" style="margin-top:6px">每發請求一列（個人留200筆 · 全站用全局日誌100筆）；扣點照當下匯率即時算。</div>
     <h2 style="margin-top:18px">⚡ Token 速度（每個時刻 · tokens/秒） <small id="speedTotal"></small></h2>
     <div id="speedChart"></div>
     <div id="speedChartLbl"></div>
@@ -1114,7 +1119,43 @@ async function loadUsage(){
         <td>${s.tps>0?`<b>${s.tps}</b> <span class="muted">t/s</span>`:'<span class="muted">–</span>'}</td>
       </tr>`;
     }).join("") || '<tr><td colspan="5" class="muted">尚無資料</td></tr>';
+    loadReqDetail();
   }catch(e){ $("useRows").innerHTML = `<tr><td colspan="5" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
+}
+
+/* ── 逐筆請求明細（跟隨頁籤）── */
+async function loadReqDetail(){
+  try{
+    const q = USE_SCOPE === "site" ? "&scope=site"
+      : (USE_SCOPE === "user" && USE_USER) ? `&token=${encodeURIComponent(USE_USER)}` : "";
+    const r = await fetch(`/api/auth?action=reqdetail${q}`, { headers:{Authorization:"Bearer "+token()} });
+    const j = await r.json();
+    const site = USE_SCOPE === "site";
+    const c5 = $("reqCol5"); if(c5) c5.textContent = site ? "用戶 · 金鑰" : "金鑰";
+    $("reqScope").textContent = site ? "🌐 全站（近100筆）"
+      : USE_SCOPE === "user" ? `👥 ${USE_USER_NAME || "指定用戶"}（近200筆）` : "👤 我的（近200筆）";
+    $("reqRows").innerHTML = (j.rows||[]).map(e=>{
+      const d = new Date(e.t || Date.now());
+      const ts = `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}:${String(d.getSeconds()).padStart(2,"0")}`;
+      const cell5 = site
+        ? `${esc(e.user||"?")}${e.key ? " · " + esc(e.key) : ""}`
+        : esc(e.key || "—");
+      return `<tr><td class="muted">${ts}</td><td class="code">${esc(String(e.model||"").split("/").pop())}</td>
+        <td>${Number(e.tokens||0).toLocaleString()}</td><td>${fmtPts(e.cost||0)}</td>
+        <td class="muted">${cell5}</td></tr>`;
+    }).join("") || '<tr><td colspan="5" class="muted">尚無請求</td></tr>';
+  }catch(e){ $("reqRows").innerHTML = `<tr><td colspan="5" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
+}
+
+/* ── 清除舊錯誤紀錄（僅管理員）── */
+async function purgeHistory(){
+  if(!confirm("⚠️ 確定清除所有舊用量/請求紀錄？\n\n· 舊匯率扣點（如704點/發）、tokens當點數記的錯誤資料全部刪除\n· 所有帳號 usedTokens 歸零\n· 統計從現在重算（不可復原）")) return;
+  if(!confirm("最後確認：真的清空？")) return;
+  try{
+    const j = await api("usage.purge");
+    toast(`已清除 ${j.removed} 天用量 + 請求日誌 · ${j.usersReset} 帳號累計歸零 ✅`);
+    loadUsage();
+  }catch(e){ toast("失敗："+e.message, true); }
 }
 
 /* ── 用量折線圖（SVG：漸層面積＋節點＋數值；切頁/縮放重畫）── */
