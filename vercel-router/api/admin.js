@@ -274,6 +274,81 @@ module.exports = async (req, res) => {
       return sendJson(res, 200, { ok: true, logs });
     }
 
+    // ── 渠道（多組 key、權重、模型範圍）──
+    if (action === "channels") {
+      const chs = (await store.getChannels()) || {};
+      const list = Object.entries(chs).map(([id, c]) => ({
+        id, name: c.name || id, keys: (c.keys || []).length,
+        weight: c.weight || 1, models: c.models || [],
+        disabled: !!c.disabled, createdAt: c.createdAt || "",
+      }));
+      return sendJson(res, 200, { ok: true, channels: list });
+    }
+    if (action === "channels.create") {
+      const name = String(body.name || "").trim();
+      if (!name) return sendJson(res, 400, { ok: false, error: { message: "名稱不可為空" } });
+      const chs = (await store.getChannels()) || {};
+      const id = store.newChannelId();
+      chs[id] = { name, keys: [], weight: Math.max(1, Number(body.weight) || 1),
+        models: Array.isArray(body.models) ? body.models.filter(Boolean) : [],
+        disabled: false, createdAt: new Date().toISOString() };
+      await store.setChannels(chs);
+      return sendJson(res, 200, { ok: true, id });
+    }
+    if (action === "channels.set") {
+      const chs = (await store.getChannels()) || {};
+      const c = chs[body.id];
+      if (!c) return sendJson(res, 404, { ok: false, error: { message: "找不到渠道" } });
+      const f = body.fields || {};
+      if (f.name !== undefined && String(f.name).trim()) c.name = String(f.name).trim();
+      if (f.weight !== undefined) {
+        const w = Number(f.weight);
+        if (!Number.isFinite(w) || w < 1 || w > 100) {
+          return sendJson(res, 400, { ok: false, error: { message: "權重需 1~100" } });
+        }
+        c.weight = w;
+      }
+      if (f.models !== undefined) c.models = Array.isArray(f.models) ? f.models.filter(Boolean) : [];
+      if (f.disabled !== undefined) c.disabled = !!f.disabled;
+      await store.setChannels(chs);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (action === "channels.delete") {
+      const chs = (await store.getChannels()) || {};
+      if (!chs[body.id]) return sendJson(res, 404, { ok: false, error: { message: "找不到渠道" } });
+      delete chs[body.id];
+      await store.setChannels(chs);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (action === "channels.set-keys") {
+      // 整組換 keys（貼多把 gsk_，逗號/換行分隔）
+      const chs = (await store.getChannels()) || {};
+      const c = chs[body.id];
+      if (!c) return sendJson(res, 404, { ok: false, error: { message: "找不到渠道" } });
+      const list = String(body.keys || "").split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
+      const bad = list.filter((k) => !k.startsWith("gsk_"));
+      if (bad.length) return sendJson(res, 400, { ok: false, error: { message: `${bad.length} 把格式不對（需 gsk_ 開頭）` } });
+      c.keys = [...new Set(list)];
+      await store.setChannels(chs);
+      return sendJson(res, 200, { ok: true, count: c.keys.length });
+    }
+    if (action === "channels.test") {
+      // 渠道測試：拿第一把 key 打 /models
+      const chs = (await store.getChannels()) || {};
+      const c = chs[body.id];
+      if (!c || !(c.keys || []).length) {
+        return sendJson(res, 400, { ok: false, error: { message: "渠道無 key 可測" } });
+      }
+      try {
+        const r = await fetch("https://api.groq.com/openai/v1/models",
+          { headers: { Authorization: `Bearer ${c.keys[0]}` } });
+        return sendJson(res, 200, { ok: r.ok, status: r.status,
+          models: r.ok ? (await r.json()).data.map((m) => m.id) : undefined });
+      } catch (e) {
+        return sendJson(res, 200, { ok: false, error: String(e.message || e) });
+      }
+    }
+
     // ── 計費表（模型倍率；扣點 = tokens × 倍率）──
     if (action === "pricing") {
       const pricing = await store.getPricing();

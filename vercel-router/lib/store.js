@@ -113,7 +113,44 @@ async function markSeeded() {
   await k.set("gr:meta", JSON.stringify({ seeded: true, at: new Date().toISOString() }));
 }
 
-/** 邀請碼：gr:invites JSON {code: {credits, maxUses, used, createdBy, createdAt, disabled}} */
+/** 渠道：gr:channels JSON {id: {name, keys:[完整key], weight, models, disabled, createdAt}}
+ *  聊天路由：按 weight 選渠道 → 渠道內輪 key。預設渠道 default（env 來的 keys）。 */
+async function getChannels() {
+  const k = kv();
+  if (!k) return null;
+  try {
+    const raw = await k.get("gr:channels");
+    return raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+async function setChannels(ch) {
+  const k = kv();
+  if (!k) throw new Error("NO_KV");
+  await k.set("gr:channels", JSON.stringify(ch));
+}
+
+function newChannelId() {
+  return "ch_" + require("crypto").randomBytes(6).toString("hex");
+}
+
+/** 選渠道：啟用的、支援該模型的，按 weight 加權隨機 */
+function pickChannel(channels, model) {
+  const list = Object.entries(channels || {})
+    .filter(([, c]) => !c.disabled && (c.keys || []).length > 0)
+    .filter(([, c]) => !(c.models || []).length || (c.models || []).includes(model));
+  if (!list.length) return null;
+  const total = list.reduce((s, [, c]) => s + Math.max(1, Number(c.weight) || 1), 0);
+  let r = Math.random() * total;
+  for (const [id, c] of list) {
+    r -= Math.max(1, Number(c.weight) || 1);
+    if (r <= 0) return { id, ...c };
+  }
+  const [id, c] = list[list.length - 1];
+  return { id, ...c };
+}
 async function getInvites() {
   const k = kv();
   if (!k) throw new Error("NO_KV");
@@ -263,4 +300,4 @@ async function getUsage(days) {
   return out;
 }
 
-module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, logRequest, getLogs, ensureMonthlyQuota };
+module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, logRequest, getLogs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel };

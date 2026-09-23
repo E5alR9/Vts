@@ -48,21 +48,21 @@ function isCooling(i) {
   return until !== undefined && Date.now() < until;
 }
 
-function cool(i, status) {
+function coolKey(key, status) {
   const ms = COOLDOWN_MS[status];
-  if (ms > 0) STATE.cooldownUntil.set(i, Date.now() + ms);
+  if (ms > 0) STATE.cooldownUntil.set("k:" + key, Date.now() + ms);
 }
 
-/** 取下一把可用金鑰的索引（round-robin，跳過冷卻中的）；全冷卻時回傳最久之後解凍的 */
-function nextKey(total) {
+/** 取下一把可用金鑰（round-robin，跳過冷卻中的）；全冷卻時回傳最久之後解凍的 */
+function nextKeyIdx(keyArr) {
   const now = Date.now();
   let best = -1;
   let bestUntil = Infinity;
-  for (let n = 0; n < total; n++) {
-    const i = (STATE.cursor + n) % total;
-    const until = STATE.cooldownUntil.get(i);
+  for (let n = 0; n < keyArr.length; n++) {
+    const i = (STATE.cursor + n) % keyArr.length;
+    const until = STATE.cooldownUntil.get("k:" + keyArr[i]);
     if (until === undefined || now >= until) {
-      STATE.cursor = (i + 1) % total;
+      STATE.cursor = (i + 1) % keyArr.length;
       return i;
     }
     if (until < bestUntil) {
@@ -147,15 +147,29 @@ module.exports = async (req, res) => {
   for (const model of ladder) {
     let modelDead = false;
 
-    for (let tries = 0; tries < keys.length && !modelDead; tries++) {
-      const idx = nextKey(keys.length);
+    // 渠道路由：有啟用且支援此模型的渠道 → 按權重選一個，用它的 keys；
+    // 沒有渠道（或 KV 未開）→ 用全池（env + 管理的 keys）
+    let roundKeys = keys;
+    let channelName = "";
+    try {
+      const chs = await store.getChannels();
+      const picked = chs ? store.pickChannel(chs, model) : null;
+      if (picked && (picked.keys || []).length) {
+        roundKeys = picked.keys;
+        channelName = picked.name || picked.id;
+      }
+    } catch { /* 渠道讀取失敗就用全池 */ }
+
+    for (let tries = 0; tries < roundKeys.length && !modelDead; tries++) {
+      const idx = nextKeyIdx(roundKeys);
       if (idx < 0) break;
+      const gkey = roundKeys[idx];
 
       const init = {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${keys[idx]}`,
+          Authorization: `Bearer ${gkey}`,
         },
         body: JSON.stringify({ ...body, model }),
       };
@@ -164,7 +178,7 @@ module.exports = async (req, res) => {
       try {
         upstream = await fetch(GROQ_URL, init);
       } catch (e) {
-        cool(idx, 503);
+        coolKey(gkey, 503);
         lastError = { status: 502, payload: { error: { message: `network: ${e.message}` } } };
         continue;
       }
@@ -172,7 +186,8 @@ module.exports = async (req, res) => {
       if (upstream.ok) {
         res.setHeader("x-router-model", model);
         res.setHeader("x-router-key-index", String(idx));
-        res.setHeader("x-router-key-count", String(keys.length));
+        res.setHeader("x-router-key-count", String(roundKeys.length));
+        if (channelName) res.setHeader("x-router-channel", channelName);
 
         // user 帳號扣點（admin/legacy 不扣；-1 無限不扣）——見下方各分支內聯實作
         // （扣點必須在 res.end() 之前完成，否則 x-credits-left 發不出去）
@@ -242,7 +257,7 @@ module.exports = async (req, res) => {
         /* 非 JSON */
       }
       const msg = (payload && payload.error && payload.error.message) || "";
-      cool(idx, status);
+      coolKey(gkey, status);
       lastError = { status: status === 404 ? 502 : status, payload: payload || { error: { message: `HTTP ${status}` } } };
 
       // 模型不存在 / 模型名錯誤 → 換下一階模型（跟金鑰無關，繼續敲同一把也沒用）

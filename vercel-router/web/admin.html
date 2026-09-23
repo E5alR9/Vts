@@ -66,6 +66,18 @@
     </div>
   </section>
 
+  <section id="secChannels" style="grid-column:span 12">
+    <h2>🔀 渠道 <small>多組 key 分組、按權重路由、可限模型；沒建渠道時走全池</small></h2>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+      <div><label>名稱</label><input type="text" id="newChName" placeholder="例如：主力-01" style="min-width:180px"></div>
+      <div><label>權重（1~100）</label><input type="number" id="newChWeight" value="1" min="1" max="100" style="max-width:110px"></div>
+      <div><label>限定模型（空=全部，逗號分隔）</label><input type="text" id="newChModels" placeholder="例：qwen/qwen3.8-27b" style="min-width:220px"></div>
+      <div><label>&nbsp;</label><button class="primary" onclick="addChannel()">＋ 建渠道</button></div>
+    </div>
+    <table><thead><tr><th>名稱</th><th>keys</th><th>權重</th><th>模型</th><th>狀態</th><th>操作</th></tr></thead>
+    <tbody id="chRows"><tr><td colspan="6" class="muted">載入中…</td></tr></tbody></table>
+  </section>
+
   <section id="secUsers">
     <h2>👥 帳號與點數 <small>token 建好只顯示一次；點數 -1 = 無限</small></h2>
     <div class="grid2">
@@ -329,6 +341,62 @@ async function playRun(){
     loadLogs();
   }catch(e){ $("playOut").textContent = "失敗："+e.message; }
 }
+/* ── 渠道 ── */
+async function loadChannels(){
+  try{
+    const j = await api("channels");
+    $("chRows").innerHTML = (j.channels||[]).map(c=>`<tr>
+      <td><b>${esc(c.name)}</b><br><span class="muted code">${esc(c.id)}</span></td>
+      <td>${c.keys}</td><td>${esc(c.weight)}</td>
+      <td class="muted">${(c.models||[]).length?esc(c.models.join("、")):"全部"}</td>
+      <td>${c.disabled?'<span class="chip bad">停用</span>':'<span class="chip ok">啟用</span>'}</td>
+      <td><div class="rowbtns">
+        <button onclick="setChKeys('${esc(c.id)}')">換keys</button>
+        <button onclick="setChWeight('${esc(c.id)}',${esc(c.weight)})">權重</button>
+        <button onclick="testChannel('${esc(c.id)}')">測試</button>
+        <button onclick="toggleChannel('${esc(c.id)}',${c.disabled?"false":"true"})">${c.disabled?"啟用":"停用"}</button>
+        <button class="danger" onclick="deleteChannel('${esc(c.id)}')">刪除</button>
+      </div></td></tr>`).join("") || '<tr><td colspan="6" class="muted">尚無渠道（走全池模式）</td></tr>';
+  }catch(e){ $("chRows").innerHTML = `<tr><td colspan="6" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
+}
+function parseModels(s){ return String(s||"").split(/[,，\s;；]+/).map(x=>x.trim()).filter(Boolean); }
+async function addChannel(){
+  const name=$("newChName").value.trim(); if(!name) return toast("請填名稱",true);
+  try{ await api("channels.create",{name, weight:Number($("newChWeight").value)||1, models:parseModels($("newChModels").value)});
+    $("newChName").value=""; toast("已建渠道"); loadChannels();
+  }catch(e){ toast("失敗："+e.message, true); }
+}
+async function setChKeys(id){
+  const v = prompt("整組換 keys（多把用逗號或換行分隔，gsk_ 開頭）：");
+  if(v===null) return;
+  try{ const j = await api("channels.set-keys",{id, keys:v}); toast(`已寫入 ${j.count} 把`); loadChannels(); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
+async function setChWeight(id, cur){
+  const v = prompt("權重（1~100，越大越常用）：", String(cur||1));
+  if(v===null) return;
+  try{ await api("channels.set",{id, fields:{weight:Number(v)}}); loadChannels(); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
+async function toggleChannel(id, disabled){
+  try{ await api("channels.set",{id, fields:{disabled}}); loadChannels(); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
+async function deleteChannel(id){
+  if(!confirm("確定刪除這個渠道？")) return;
+  try{ await api("channels.delete",{id}); loadChannels(); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
+async function testChannel(id){
+  toast("測試中…");
+  try{
+    const r = await fetch("/api/admin",{method:"POST",
+      headers:{"Content-Type":"application/json",Authorization:"Bearer "+token()},
+      body:JSON.stringify({action:"channels.test",id})});
+    const j = await r.json();
+    toast(j.ok ? `✅ 通（${(j.models||[]).length} 個模型）` : `❌ 不通：${j.status||""} ${j.error||""}`, !j.ok);
+  }catch(e){ toast("失敗："+e.message, true); }
+}
 /* ── 邀請碼（加額度用）── */
 async function loadInvites(){
   try{
@@ -384,7 +452,7 @@ async function loadUsage(){
     .then(r=>r.json()).then(j=>{
       if(!j.ok) return location.href = "/login";
       if(j.kind!=="admin" && !(j.user&&j.user.role==="admin")) return location.href = "/me";
-      loadAll(); loadUsage(); loadInvites(); loadLogs();
+      loadAll(); loadUsage(); loadInvites(); loadChannels(); loadLogs();
     }).catch(()=>location.href="/login");
 })();
 </script>
