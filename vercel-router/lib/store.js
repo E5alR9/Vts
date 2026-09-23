@@ -365,16 +365,17 @@ async function getUsage(days) {
 }
 
 /* ── 方案（plus/pro/max/ultra 預留）：gr:plans {id:{label,monthlyQuota,rewardMult}} ── */
-/** 方案（分級容量）：fee=30天訂閱費(點) · h5/wk=每5小時/每週用量上限(點,速率配額,活動×倍率)
- *  monthlyQuota=月重置額 · rewardMult=簽到/推薦倍率 · __v 版本遷移（舊表無fee/h5/wk → 自動換新） */
+/** 方案（分級容量）：fee=30天訂閱費(點) · h5/wk=每5h/每週額度(點,0=不限制;
+ *  Free=純付費用戶不設任何限制(打多少扣多少、無窗口/無RPM/無總量)；付費檔=月補+獎勵倍率+額度階梯
+ *  monthlyQuota=月重置額 · rewardMult=簽到/推薦倍率 · __v 版本遷移（舊表自動換新） */
 const DEFAULT_PLANS = {
-  free:  { label: "Free",  monthlyQuota: 0,    rewardMult: 1,   fee: 0,    h5: 3,     wk: 20 },
+  free:  { label: "Free",  monthlyQuota: 0,    rewardMult: 1,   fee: 0,    h5: 0,     wk: 0 },
   plus:  { label: "Plus",  monthlyQuota: 30,   rewardMult: 1.5, fee: 20,   h5: 15,    wk: 120 },
   pro:   { label: "Pro",   monthlyQuota: 150,  rewardMult: 2,   fee: 100,  h5: 80,    wk: 600 },
   max:   { label: "Max",   monthlyQuota: 900,  rewardMult: 3,   fee: 500,  h5: 500,   wk: 3600 },
   ultra: { label: "Ultra", monthlyQuota: 3500, rewardMult: 5,   fee: 2000, h5: 3000,  wk: 21600 },
 };
-const PLANS_VERSION = 2;
+const PLANS_VERSION = 3;   // v3: Free 改為完全不限制
 
 async function getPlans() {
   const k = kv();

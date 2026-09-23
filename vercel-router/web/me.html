@@ -278,7 +278,7 @@
     <table><thead><tr><th>方案</th><th>月費(點)</th><th>5h上限(點)</th><th>週上限(點)</th><th>月補點</th><th>獎勵倍率</th></tr></thead>
     <tbody id="planRows"><tr><td colspan="6" class="muted">載入中…</td></tr></tbody></table>
     <div style="margin-top:10px"><button class="primary" onclick="savePlans()">💾 儲存方案</button></div>
-    <div class="muted" style="margin-top:8px">用戶可在自己帳號頁用<strong>點數</strong>訂閱/降級（30天）；管理端「訂閱」鈕=直接指派（可跳過費用，發獎用）。5h/週=速率配額，活動期間×倍率。</div>
+    <div class="muted" style="margin-top:8px">用戶可在自己帳號頁用<strong>點數</strong>訂閱/降級（30天）；管理端「訂閱」鈕=直接指派（可跳過費用，發獎用）。<b>Free 欄位0＝完全不限制（純付費）</b>；付費檔的5h/週=額度階梯，活動期間×倍率。</div>
   </section>
 
   <!-- ════════ 管理：請求日誌 ════════ -->
@@ -463,7 +463,7 @@ async function loadPlan(){
       ? (j.roi.paid
         ? `✅ 已回本：本月 API 用量 ${fmtPts(j.roi.spend)} 點 ≥ 方案費 ${fmtPts(j.roi.fee)} 點`
         : `📉 未回本：本月用 ${fmtPts(j.roi.spend)} 點 / 方案費 ${fmtPts(j.roi.fee)} 點（再打 ${fmtPts(Math.max(0, j.roi.fee - j.roi.spend))} 點就回本）`)
-      : "Free：升級拿更高 5h/週額度＋簽到/推薦加倍。純付費用戶照打照扣——不設總量上限、不設 RPM 上限。";
+      : "Free ＝ 純付費用戶：打多少扣多少，<b>不設5h/週額度、不設 RPM、不設總量</b>。付費方案＝月補點＋簽到/推薦加倍＋額度階梯（管理頁可調）。";
     $("planBtns").innerHTML = (j.plans || []).map(pl=>{
       const cur = pl.id === j.plan;
       return `<button class="${cur ? "" : "primary"}" ${cur ? "disabled" : ""} onclick="subPlan('${esc(pl.id)}','${esc(pl.label)}',${pl.fee})">${cur ? "✓ " : ""}${esc(pl.label)} · ${pl.fee ? pl.fee + "點/30天" : "免費"}</button>`;
