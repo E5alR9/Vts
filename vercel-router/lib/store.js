@@ -392,4 +392,14 @@ async function getKeyStat() {
   } catch { return { day: "", keys: {} }; }
 }
 
-module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, logRequest, getLogs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel, getPlans, setPlans, DEFAULT_PLANS, getEvent, setEvent, activeEvent, keyStatHash, recordKeyStat, getKeyStat };
+/** 模型官方參考價（$/1M tokens，input/output；以 Groq 公告為準）
+ *  扣點規則：站內實付 = total_tokens × 倍率（倍率見 DEFAULT_PRICING） */
+const MODEL_PRICES = {
+  "qwen/qwen3.8-27b":    { input: 0.80,  output: 3.2,  note: "主力對話" },
+  "qwen/qwen3-32b":      { input: 0.60,  output: 2.4,  note: "備援梯隊" },
+  "openai/gpt-oss-120b": { input: 0.15,  output: 0.6,  note: "推理較強" },
+  "openai/gpt-oss-20b":  { input: 0.075, output: 0.3,  note: "計費基準（1x）" },
+  "allam-2-7b":          { input: 0,     output: 0,    note: "未定價（0 計）" },
+};
+
+module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, MODEL_PRICES, logRequest, getLogs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel, getPlans, setPlans, DEFAULT_PLANS, getEvent, setEvent, activeEvent, keyStatHash, recordKeyStat, getKeyStat };

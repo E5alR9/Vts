@@ -430,7 +430,7 @@ module.exports = async (req, res) => {
     // ── 計費表（模型倍率；扣點 = tokens × 倍率）──
     if (action === "pricing") {
       const pricing = await store.getPricing();
-      return sendJson(res, 200, { ok: true, pricing, defaults: store.DEFAULT_PRICING });
+      return sendJson(res, 200, { ok: true, pricing, defaults: store.DEFAULT_PRICING, prices: store.MODEL_PRICES });
     }
     if (action === "pricing.set") {
       const p = body.pricing || {};

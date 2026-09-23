@@ -168,6 +168,13 @@ module.exports = async (req, res) => {
         message: `簽到成功 +${award} 點${mult > 1 ? `（×${mult} 加成）` : ""}` });
     }
 
+    // ── 模型價格表（任何登入身分可讀：官方參考價 × 站內倍率）──
+    if (action === "pricing") {
+      return sendJson(res, 200, { ok: true,
+        pricing: await store.getPricing(), prices: store.MODEL_PRICES,
+        defaults: store.DEFAULT_PRICING });
+    }
+
     // ── 我的帳號 ──
     if (action === "me") {
       if (a.kind === "legacy") return sendJson(res, 200, { ok: true, kind: "legacy", note: "共用入口，不扣點" });
