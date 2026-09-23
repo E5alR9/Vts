@@ -86,7 +86,7 @@
       <span id="calTitle">–</span>
       <button class="cal-nav" onclick="calNav(1)" aria-label="下個月">›</button>
       <span class="muted">🟦 已簽到 · ○ 今天</span>
-      <button class="primary" id="btnCheckin" onclick="checkin()">📅 簽到 +100</button>
+      <button class="primary" id="btnCheckin" onclick="checkin()">📅 簽到 +10</button>
     </div>
     <div class="cal-grid" id="calGrid"></div>
   </section>
@@ -343,7 +343,7 @@ function fmtPts(n){
 }
 
 /* ── 身分 ── */
-let ME = null, IS_ADMIN = false, CHART_ROWS = [], SPEED_PTS = [], AKS = [], USE_SCOPE = "me", USE_USER = "", USE_USER_NAME = "";
+let ME = null, IS_ADMIN = false, CHART_ROWS = [], SPEED_PTS = [], AKS = [], USE_SCOPE = "me", USE_USER = "", USE_USER_NAME = "", CHECKIN_AWARD = 10;
 function token(){
   return localStorage.getItem("gr_session") || localStorage.getItem("gr_admin_token") || "";
 }
@@ -546,7 +546,7 @@ function renderCal(){
     else {
       btn.style.display = "";
       const done = set.has(today);
-      btn.textContent = done ? "✅ 今日已簽到" : "📅 簽到 +100";
+      btn.textContent = done ? "✅ 今日已簽到" : `📅 簽到 +${fmtPts(CHECKIN_AWARD)}`;
       btn.disabled = done;
     }
   }
@@ -1360,6 +1360,7 @@ async function loadPlayModels(){
     CHECKIN = Array.isArray(j.user.checkinLog) ? j.user.checkinLog : [];
     AKS = Array.isArray(j.user.apiKeys) ? j.user.apiKeys : [];
     renderAk();
+    if(j.checkinAward) CHECKIN_AWARD = Number(j.checkinAward) || CHECKIN_AWARD;   // 按鈕面額=後端真實值
     // 活動橫幅
     if(j.event && j.event.enabled){
       const b = $("evtBanner");

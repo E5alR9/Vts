@@ -261,7 +261,17 @@ module.exports = async (req, res) => {
           }
         }
       } catch { /* 補發失敗不擋路 */ }
-      return sendJson(res, 200, { ok: true, kind: a.kind, user: cleanUser(userObj.token, userObj), event });
+      // 簽到按鈕面額 = 基礎(CHECKIN_CREDITS, 預設10) × 活動 × 方案 —— 與實際發放同一條式
+      let checkinAward = 10;
+      try {
+        const rawA = Number(process.env.CHECKIN_CREDITS);
+        let aw = (Number.isFinite(rawA) && rawA > 0) ? rawA : 10;
+        if (event) aw *= Number(event.mult) || 1;
+        const plans = await store.getPlans();
+        aw *= Number((plans[userObj.plan || "free"] || {}).rewardMult) || 1;
+        checkinAward = aw;
+      } catch { /* 顯示失敗不擋路 */ }
+      return sendJson(res, 200, { ok: true, kind: a.kind, user: cleanUser(userObj.token, userObj), event, checkinAward });
     }
 
     // ── 用量（+ mstat 每模型：7天 tokens/請求 · 目前RPM · 平均t/s；scope=site 全站公開、scope=me 個人）──
