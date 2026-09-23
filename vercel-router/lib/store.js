@@ -442,19 +442,19 @@ const MODEL_PRICES = {
 };
 
 /** 模型規格表（Groq 官方 console 資料：速度 T/s、開發層限流、上下文、最長輸出、檔案上限）
- *  tps=null 表官方未公布；note 註記未開放/類型 */
+ *  tps=null 官方未公布；rpm/tpm = 官方開發層「單把、單模型」限流（每個模型分開算、互不共用） */
 const MODEL_SPECS = {
-  "qwen/qwen3.8-27b":    { tps: 450,  limits: "250K TPM · 1K RPM", ctx: 131042, maxOut: 16384,  file: "20 MB", note: "主力對話" },
-  "openai/gpt-oss-120b": { tps: 500,  limits: "250K TPM · 1K RPM", ctx: 131072, maxOut: 65536,  file: "-", note: "推理較強" },
-  "openai/gpt-oss-20b":  { tps: 1000, limits: "250K TPM · 1K RPM", ctx: 131072, maxOut: 65536,  file: "-", note: "最快 · 計費基準" },
-  "allam-2-7b":          { tps: null, limits: "—",                ctx: null,   maxOut: null,   file: "-", note: "免費 · 官方未公布規格" },
-  "openai/gpt-oss-safeguard-20b": { tps: 1000, limits: "150K TPM · 1K RPM", ctx: 131072, maxOut: 65536, file: "-", note: "安全模型" },
-  "meta-llama/llama-prompt-guard-2-22m": { tps: null, limits: "30K TPM · 100 RPM", ctx: 512, maxOut: 512, file: "-", note: "安全審查 · $0.03" },
-  "meta-llama/llama-prompt-guard-2-86m": { tps: null, limits: "30K TPM · 100 RPM", ctx: 512, maxOut: 512, file: "-", note: "安全審查 · $0.04" },
-  "whisper-large-v3":        { tps: null, limits: "200K ASH · 300 RPM", ctx: null, maxOut: null, file: "100 MB", note: "STT · $0.111/時" },
-  "whisper-large-v3-turbo":  { tps: null, limits: "400K ASH · 400 RPM", ctx: null, maxOut: null, file: "100 MB", note: "STT · $0.04/時" },
-  "canopylabs/orpheus-v1-english":      { tps: null, limits: "50K TPM · 250 RPM", ctx: 4000, maxOut: 50000, file: "-", note: "TTS · $22/1M字元" },
-  "canopylabs/orpheus-arabic-saudi":    { tps: null, limits: "50K TPM · 250 RPM", ctx: 4000, maxOut: 50000, file: "-", note: "TTS · $40/1M字元" },
+  "qwen/qwen3.8-27b":    { tps: 450,  rpm: 1000, tpm: 250000, limits: "250K TPM · 1K RPM", ctx: 131042, maxOut: 16384,  file: "20 MB", note: "主力對話" },
+  "openai/gpt-oss-120b": { tps: 500,  rpm: 1000, tpm: 250000, limits: "250K TPM · 1K RPM", ctx: 131072, maxOut: 65536,  file: "-", note: "推理較強" },
+  "openai/gpt-oss-20b":  { tps: 1000, rpm: 1000, tpm: 250000, limits: "250K TPM · 1K RPM", ctx: 131072, maxOut: 65536,  file: "-", note: "最快 · 計費基準" },
+  "allam-2-7b":          { tps: null, rpm: null, tpm: null,   limits: "—",                ctx: null,   maxOut: null,   file: "-", note: "免費 · 官方未公布規格" },
+  "openai/gpt-oss-safeguard-20b": { tps: 1000, rpm: 1000, tpm: 150000, limits: "150K TPM · 1K RPM", ctx: 131072, maxOut: 65536, file: "-", note: "安全模型" },
+  "meta-llama/llama-prompt-guard-2-22m": { tps: null, rpm: 100, tpm: 30000, limits: "30K TPM · 100 RPM", ctx: 512, maxOut: 512, file: "-", note: "安全審查 · $0.03" },
+  "meta-llama/llama-prompt-guard-2-86m": { tps: null, rpm: 100, tpm: 30000, limits: "30K TPM · 100 RPM", ctx: 512, maxOut: 512, file: "-", note: "安全審查 · $0.04" },
+  "whisper-large-v3":        { tps: null, rpm: 300, tpm: null, limits: "200K ASH · 300 RPM", ctx: null, maxOut: null, file: "100 MB", note: "STT · $0.111/時" },
+  "whisper-large-v3-turbo":  { tps: null, rpm: 400, tpm: null, limits: "400K ASH · 400 RPM", ctx: null, maxOut: null, file: "100 MB", note: "STT · $0.04/時" },
+  "canopylabs/orpheus-v1-english":      { tps: null, rpm: 250, tpm: 50000, limits: "50K TPM · 250 RPM", ctx: 4000, maxOut: 50000, file: "-", note: "TTS · $22/1M字元" },
+  "canopylabs/orpheus-arabic-saudi":    { tps: null, rpm: 250, tpm: 50000, limits: "50K TPM · 250 RPM", ctx: 4000, maxOut: 50000, file: "-", note: "TTS · $40/1M字元" },
 };
 
 /** 實測速度環：gr:speed JSON array（最多240筆，留2天）· {t, model, tokens, tps, u} */

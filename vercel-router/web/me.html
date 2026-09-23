@@ -269,7 +269,11 @@
     </div>
     <table><thead><tr><th>金鑰</th><th>來源</th><th>今日請求</th><th>今日 tokens</th><th>錯誤</th><th>壓力（近 1 分鐘）</th></tr></thead>
     <tbody id="kpRows"><tr><td colspan="6" class="muted">載入中…</td></tr></tbody></table>
-    <div class="muted" style="margin-top:8px">壓力 ＝ 近 1 分鐘請求 ÷ <code>KEY_RPM_LIMIT</code>（env，預設 <b>1000</b> ＝ 官方開發層單把）。上方總容量為<strong>推估</strong>＝可用把數 × 單把 1K RPM / 250K TPM；若 Groq 實際按 <b>org 級</b>限流（同 org 的 key 共用額度），真實總量以先撞 429 的為準。≥80% 亮紅 → 考慮停用該把或調降渠道權重。</div>
+    <div class="muted" style="margin-top:8px">壓力 ＝ 近 1 分鐘請求 ÷ <code>KEY_RPM_LIMIT</code>（env，預設 <b>1000</b> ＝ 官方開發層單把）。下方容量<strong>每個模型分開算</strong>（Groq 限流 per-model，各模型預算互不共用）；若 Groq 實際按 <b>org 級</b>限流（同 org 所有 key 共用一個模型的額度），真實總量以先撞 429 的為準。≥80% 亮紅 → 考慮停用該把或調降渠道權重。</div>
+    <h2 style="margin-top:16px">📐 每模型容量推估 <small>單把官方限流 × 可用把數 · 各模型獨立、不疊加</small></h2>
+    <table><thead><tr><th>模型</th><th>單把 RPM</th><th>× 把數</th><th>推估總 RPM</th><th>推估總 TPM</th></tr></thead>
+    <tbody id="capRows"><tr><td colspan="5" class="muted">載入中…</td></tr></tbody></table>
+    <div class="muted" style="margin-top:6px">例：主力 qwen 獨享 1,000×30＝30,000 RPM「只算 qwen」；同時間 20b 另有自己的一份 30,000 RPM——不是全部加總成一個大數字。「未公布」者按 1K/250K 推估。</div>
   </section>
 
   <!-- ════════ 管理：系統（登入方式） ════════ -->
@@ -886,12 +890,20 @@ async function loadKeyPress(){
     $("kpPool").textContent = pool.total + " 把";
     $("kpPoolL").textContent = `可用金鑰（env ${pool.env} + 管理 ${pool.managed} · 渠道另計）`;
     $("kpCap").textContent = fmt(cap);
-    $("kpCapL").textContent = `推估總容量 RPM（${pool.total} 把 × ${fmt(j.limit || 1000)}/把）`;
+    $("kpCapL").textContent = `主力模型 RPM／個（各模型獨立：${fmt(j.limit || 1000)}×${pool.total} 把）`;
     $("kpNow").textContent = fmt(nowRpm);
-    $("kpNowL").textContent = `目前實際 RPM（負載 ${pct}%）`;
+    $("kpNowL").textContent = `目前全模型合計 RPM（佔單模型預算 ${pct}%）`;
     const tpm = pool.total * 250000;
     $("kpTpm").textContent = tpm >= 1e6 ? (tpm / 1e6).toLocaleString() + "M" : fmt(tpm);
-    $("kpTpmL").textContent = `推估總 TPM（${pool.total} 把 × 250K/把 · 官方開發層）`;
+    $("kpTpmL").textContent = `單模型推估 TPM（${pool.total} 把 × 250K/把）`;
+    // 每模型容量表
+    $("capRows").innerHTML = (j.capacity || []).map(c => `<tr>
+      <td class="code">${esc(c.model)}</td>
+      <td>${c.rpmKnown ? fmt(c.rpmKey) : `未公布（推估 ${fmt(c.rpmKey)}）`}</td>
+      <td>${pool.total} 把</td>
+      <td><b>${fmt(c.rpmTotal)}</b> RPM</td>
+      <td>${c.tpmKnown ? (c.tpmTotal >= 1e6 ? (c.tpmTotal / 1e6).toLocaleString() + "M" : fmt(c.tpmTotal)) + " TPM" : '<span class="muted">非 TPM 計</span>'}</td>
+    </tr>`).join("") || '<tr><td colspan="5" class="muted">尚無資料</td></tr>';
     $("kpRows").innerHTML = (j.keys||[]).map(k=>{
       const cls = k.pressure >= 80 ? "bad" : k.pressure >= 50 ? "warn" : "ok";
       const st = k.rpm === 0 ? "空閒" : k.pressure >= 80 ? "高壓" : k.pressure >= 50 ? "偏高" : "正常";

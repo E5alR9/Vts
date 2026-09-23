@@ -428,7 +428,15 @@ module.exports = async (req, res) => {
       const pool = { env: envList.length,
         managed: managed.filter((k) => !k.disabled).length };
       pool.total = pool.env + pool.managed;
-      return sendJson(res, 200, { ok: true, day: s.day || "", limit, pool, keys: list });
+      // 每模型容量推估：Groq 限流每個模型分開算 → 各模型預算 = 單把(rpm/tpm) × 把數
+      const capacity = Object.entries(store.MODEL_SPECS).map(([model, sp]) => {
+        const rpmKey = sp.rpm == null ? limit : sp.rpm;          // 未公布 → 用 KEY_RPM_LIMIT 推估
+        const tpmKey = sp.tpm == null ? 250000 : sp.tpm;
+        return { model, rpmKnown: sp.rpm != null, rpmKey,
+          rpmTotal: rpmKey * pool.total,
+          tpmKnown: sp.tpm != null, tpmKey, tpmTotal: tpmKey * pool.total };
+      }).sort((x, y) => y.rpmTotal - x.rpmTotal);
+      return sendJson(res, 200, { ok: true, day: s.day || "", limit, pool, capacity, keys: list });
     }
 
     // ── 計費表（模型倍率；扣點 = tokens × 倍率）──
