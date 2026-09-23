@@ -275,8 +275,8 @@
   <!-- ════════ 管理：方案（預留） ════════ -->
   <section id="secPlans" style="grid-column:span 12">
     <h2>💎 方案 <small>月費 · 5h/週額度 · 月補 · 獎勵倍率 — 用戶在「帳號/點數」頁用點數訂閱</small></h2>
-    <table><thead><tr><th>方案</th><th>月費(點)</th><th>5h上限(點)</th><th>週上限(點)</th><th>月補點</th><th>獎勵倍率</th></tr></thead>
-    <tbody id="planRows"><tr><td colspan="6" class="muted">載入中…</td></tr></tbody></table>
+    <table><thead><tr><th>方案</th><th>月費(點)</th><th>5h上限(點)</th><th>週上限(點)</th><th>月補點</th><th>獎勵倍率</th><th>API折扣</th></tr></thead>
+    <tbody id="planRows"><tr><td colspan="7" class="muted">載入中…</td></tr></tbody></table>
     <div style="margin-top:10px"><button class="primary" onclick="savePlans()">💾 儲存方案</button></div>
     <div class="muted" style="margin-top:8px">用戶可在自己帳號頁用<strong>點數</strong>訂閱/降級（30天）；管理端「訂閱」鈕=直接指派（可跳過費用，發獎用）。<b>Free 欄位0＝完全不限制（純付費）</b>；付費檔的5h/週=額度階梯，活動期間×倍率。</div>
   </section>
@@ -451,6 +451,8 @@ async function loadPlan(){
       ["每週上限", j.caps.wk ? `${fmtPts(j.caps.wk)} 點${j.ev ? ` ×${j.ev.mult} 活動中` : ""}` : "–"],
       ["本月 API 消耗", `${fmtPts(j.monthSpend)} 點（＝US$${fmtPts(j.monthSpend)}）`],
       ["本週已用", `${fmtPts(j.usedWk)} / ${j.caps.wk ? fmtPts(j.caps.wk) : "∞"} 點`],
+      ["月補 / 月費", `${fmtPts(j.caps.monthlyQuota)} / ${fmtPts(j.fee)} 點`],
+      ["API 扣點折扣", j.caps.disc < 1 ? `×${j.caps.disc} — 比直接付費省 ${Math.round((1 - j.caps.disc) * 100)}%` : "×1 原價（＝官方價直轉，與直接付費同價）"],
     ].map(([k,v])=>`<div>${esc(k)}</div><div>${esc(v)}</div>`).join("");
     const p5 = j.caps.h5 > 0 ? Math.min(100, j.used5 / j.caps.h5 * 100) : 0;
     const pw = j.caps.wk > 0 ? Math.min(100, j.usedWk / j.caps.wk * 100) : 0;
@@ -466,7 +468,7 @@ async function loadPlan(){
       : "Free ＝ 純付費用戶：打多少扣多少，<b>不設5h/週額度、不設 RPM、不設總量</b>。付費方案＝月補點＋簽到/推薦加倍＋額度階梯（管理頁可調）。";
     $("planBtns").innerHTML = (j.plans || []).map(pl=>{
       const cur = pl.id === j.plan;
-      return `<button class="${cur ? "" : "primary"}" ${cur ? "disabled" : ""} onclick="subPlan('${esc(pl.id)}','${esc(pl.label)}',${pl.fee})">${cur ? "✓ " : ""}${esc(pl.label)} · ${pl.fee ? pl.fee + "點/30天" : "免費"}</button>`;
+      return `<button class="${cur ? "" : "primary"}" ${cur ? "disabled" : ""} onclick="subPlan('${esc(pl.id)}','${esc(pl.label)}',${pl.fee})">${cur ? "✓ " : ""}${esc(pl.label)} · ${pl.fee ? pl.fee + "點/30天" : "免費"}${pl.disc < 1 ? " · API×" + pl.disc : ""}</button>`;
     }).join("");
   }catch(e){ const h = $("planHead"); if(h) h.textContent = "載入失敗：" + e.message; }
 }
@@ -1040,6 +1042,7 @@ async function loadPromo(){
       <td><input type="number" data-plan="${esc(id)}" data-f="wk" value="${esc(x.wk ?? 0)}" min="0" step="10" style="max-width:120px"></td>
       <td><input type="number" data-plan="${esc(id)}" data-f="monthlyQuota" value="${esc(x.monthlyQuota||0)}" min="0" step="10" style="max-width:130px"></td>
       <td><input type="number" data-plan="${esc(id)}" data-f="rewardMult" value="${esc(x.rewardMult||1)}" min="1" max="100" step="0.5" style="max-width:100px"></td>
+      <td><input type="number" data-plan="${esc(id)}" data-f="disc" value="${esc(x.disc ?? 1)}" min="0.01" max="1" step="0.05" style="max-width:90px"></td>
     </tr>`).join("");
   }catch(e){ toast("活動/方案載入失敗："+e.message, true); }
 }
