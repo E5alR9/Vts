@@ -826,7 +826,7 @@ async function playRun(){
     const r = await fetch("/v1/chat/completions", { method:"POST",
       headers:{"Content-Type":"application/json", Authorization:"Bearer "+token()},
       body: JSON.stringify({ model:$("playModel").value, stream:true,
-        messages: PLAY_HIST.slice(-20) }) });   // 不設 max_tokens — 模型跑到各自上限，照實測計費
+        messages: PLAY_HIST.slice(-20) }) });   // 不設輸出上限欄位 — 模型跑到各自上限，照實測計費
     if(!r.ok){
       const j = await r.json().catch(()=>({}));
       throw new Error((j.error&&j.error.message)||("HTTP "+r.status));
