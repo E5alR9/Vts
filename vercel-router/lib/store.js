@@ -113,4 +113,49 @@ async function markSeeded() {
   await k.set("gr:meta", JSON.stringify({ seeded: true, at: new Date().toISOString() }));
 }
 
-module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded };
+/** 用量記錄：gr:usage:{yyyymmdd} JSON {token: {tokens, reqs, models:{m:n}}} + user.usedTokens 累加 */
+function dayKey(d) {
+  const t = d || new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}`;
+}
+
+async function recordUsage(userToken, model, tokens) {
+  const k = kv();
+  if (!k) return;
+  const dk = `gr:usage:${dayKey()}`;
+  try {
+    let day = {};
+    try {
+      const raw = await k.get(dk);
+      day = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {};
+    } catch { day = {}; }
+    const e = day[userToken] || { tokens: 0, reqs: 0, models: {} };
+    e.tokens += tokens;
+    e.reqs += 1;
+    e.models[model] = (e.models[model] || 0) + 1;
+    day[userToken] = e;
+    await k.set(dk, JSON.stringify(day), { ex: 90 * 86400 });  // 留 90 天
+  } catch { /* 用量記錄失敗不影響回應 */ }
+}
+
+/** 讀用量：days 天內每日彙總（只回該 token 自己的，除非 admin 看全部） */
+async function getUsage(days) {
+  const k = kv();
+  if (!k) return null;
+  const n = Math.max(1, Math.min(90, Number(days) || 7));
+  const out = [];
+  const now = new Date();
+  for (let i = 0; i < n; i++) {
+    const d = new Date(now.getTime() - i * 86400000);
+    const dk = `gr:usage:${dayKey(d)}`;
+    try {
+      const raw = await k.get(dk);
+      out.push({ day: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+        data: raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {} });
+    } catch { out.push({ day: "", data: {} }); }
+  }
+  return out;
+}
+
+module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage };

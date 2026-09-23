@@ -1,14 +1,18 @@
 /**
- * lib/auth.js — 帳號與權限
+ * lib/auth.js — 帳號、密碼、session、權限
  *
- * 兩種身分：
- *   1. ADMIN_TOKEN（env）：全部權限（管理 keys/users/credits/seed）
- *   2. user token（KV gr:users）：role=admin|user；role=user 受點數限制
+ * 身分（按權限高到低）：
+ *   1. ADMIN_TOKEN（env）：最高後門（建第一個 admin、緊急管理）
+ *   2. user token role=admin：管理後台全部權限
+ *   3. session token：登入後發的瀏覽器憑證（綁定對應 user 的權限）
+ *   4. user token role=user：聊天 + 查自己用量，受點數限制
+ *   5. ROUTER_TOKEN（舊共用入口）：相容保留，不扣點
  *
- * 舊的 ROUTER_TOKEN（共用入口）：相容保留，視為無限點數、不記名。
- *   建議上線後把新用戶都發 user token，ROUTER_TOKEN 只留給自己的服務。
+ * 密碼：SHA-256(salt + password)，salt 存在 user 物件裡。
  */
 const { getUsers } = require("./store");
+
+const crypto = require("crypto");
 
 function adminToken() {
   return process.env.ADMIN_TOKEN || "";
@@ -19,16 +23,34 @@ function bearer(req) {
   return h.startsWith("Bearer ") ? h.slice(7) : "";
 }
 
+function hashPassword(password, salt) {
+  return crypto.createHash("sha256").update(salt + "::" + password).digest("hex");
+}
+
+function newSalt() {
+  return crypto.randomBytes(16).toString("hex");
+}
+
 /**
  * 鑑權。回傳 {ok, kind: 'admin'|'user'|'legacy'|'none', user?}
- * kind=admin：ADMIN_TOKEN 本人（全部權限）
- * kind=user：KV 裡的帳號（含 role；admin role 同樣全權限）
- * kind=legacy：舊 ROUTER_TOKEN（相容，不扣點）
  */
 async function auth(req) {
   const tok = bearer(req);
   if (!tok) return { ok: false, kind: "none" };
   if (adminToken() && tok === adminToken()) return { ok: true, kind: "admin" };
+  // session token（gr:sessions:{sid} → user token）
+  if (tok.startsWith("ses_")) {
+    const users = await getUsers();
+    if (users) {
+      const entry = Object.entries(users).find(([, u]) => u.session === tok && !u.disabled);
+      if (entry) {
+        const [userToken, u] = entry;
+        return { ok: true, kind: u.role === "admin" ? "admin" : "user",
+          user: { token: userToken, ...u }, session: true };
+      }
+    }
+    return { ok: false, kind: "none", reason: "session 已失效" };
+  }
   const users = await getUsers();
   if (users && users[tok]) {
     const u = users[tok];
@@ -47,9 +69,9 @@ function requireAdmin(a) {
 function randomToken(prefix = "gr") {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
   let s = "";
-  const buf = require("crypto").randomBytes(32);
+  const buf = crypto.randomBytes(32);
   for (const b of buf) s += chars[b % chars.length];
   return `${prefix}_${s}`;
 }
 
-module.exports = { adminToken, bearer, auth, requireAdmin, randomToken };
+module.exports = { adminToken, bearer, auth, requireAdmin, randomToken, hashPassword, newSalt };

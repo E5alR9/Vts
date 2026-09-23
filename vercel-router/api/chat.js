@@ -175,9 +175,12 @@ module.exports = async (req, res) => {
               const users = (await store.getUsers()) || {};
               const u = users[caller.user.token];
               if (u && u.credits !== -1) {
-                u.credits = Math.max(0, (Number(u.credits) || 0) - estimateCost(body, ""));
+                const cost = estimateCost(body, "");
+                u.credits = Math.max(0, (Number(u.credits) || 0) - cost);
+                u.usedTokens = (Number(u.usedTokens) || 0) + cost;
                 await store.setUsers(users);
                 res.setHeader("x-credits-left", String(u.credits));
+                await store.recordUsage(caller.user.token, model, cost);
               }
             } catch { /* 忽略 */ }
           }
@@ -192,7 +195,6 @@ module.exports = async (req, res) => {
             // 上游中斷就直接收尾，客戶端會看到不完整的 SSE
           }
           res.end();
-          await charge(estimateCost(body, ""));
           return;
         }
 
@@ -205,8 +207,10 @@ module.exports = async (req, res) => {
             const u = users[caller.user.token];
             if (u && u.credits !== -1) {
               u.credits = Math.max(0, (Number(u.credits) || 0) - cost);
+              u.usedTokens = (Number(u.usedTokens) || 0) + cost;
               await store.setUsers(users);
               res.setHeader("x-credits-left", String(u.credits));
+              await store.recordUsage(caller.user.token, model, cost);
             }
           } catch { /* 扣點失敗不影響已生成的回應 */ }
         }

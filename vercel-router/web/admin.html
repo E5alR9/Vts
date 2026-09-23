@@ -96,6 +96,10 @@ td.code{font-family:Consolas,monospace;word-break:break-all}
     </div>
     <table><thead><tr><th>名稱</th><th>角色</th><th>點數</th><th>token</th><th>操作</th></tr></thead>
     <tbody id="userRows"><tr><td colspan="5" class="muted">尚未載入</td></tr></tbody></table>
+  <section id="secUsage" style="grid-column:span 12">
+    <h2>📊 全站用量（近 7 天） <small id="useTotal"></small></h2>
+    <table><thead><tr><th>日期</th><th>tokens</th><th>請求</th><th>活躍帳號</th></tr></thead>
+    <tbody id="useRows"><tr><td colspan="4" class="muted">載入中…</td></tr></tbody></table>
   </section>
 </main>
 <div id="toast"></div>
@@ -105,10 +109,14 @@ const $ = id => document.getElementById(id);
 function toast(msg, err){ const d=document.createElement("div"); d.textContent=msg; if(err)d.className="err";
   $("toast").appendChild(d); setTimeout(()=>d.remove(), err?5200:2600); }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
-function token(){ return localStorage.getItem("gr_admin_token") || ""; }
+function token(){
+  // 登入 session 優先；舊的 ADMIN_TOKEN 直貼仍可用（最高後門）
+  return localStorage.getItem("gr_session") || localStorage.getItem("gr_admin_token") || "";
+}
 function saveToken(){ const v=$("adminToken").value.trim(); if(!v) return toast("請貼上 ADMIN_TOKEN",true);
   localStorage.setItem("gr_admin_token", v); toast("已保存，連線中…"); loadAll(); }
-function clearToken(){ localStorage.removeItem("gr_admin_token"); $("adminToken").value=""; toast("已登出"); }
+function clearToken(){ localStorage.removeItem("gr_admin_token"); localStorage.removeItem("gr_session");
+  $("adminToken").value=""; toast("已登出"); setTimeout(()=>location.href="/login", 800); }
 async function api(action, body, method){
   const opt = { method: method||(body?"POST":"GET"),
     headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+token() } };
@@ -198,9 +206,31 @@ async function toggleUser(tok, disabled){
   try{ await api("users.set",{token:tok, fields:{disabled}}); toast(disabled?"已停用":"已啟用"); loadAll(); }
   catch(e){ toast("失敗："+e.message, true); }
 }
+async function loadUsage(){
+  try{
+    const r = await fetch("/api/auth?action=usage&days=7", { headers:{Authorization:"Bearer "+token()} });
+    const j = await r.json();
+    if(!j.ok) throw new Error((j.error&&j.error.message)||"載入失敗");
+    let tot=0, req=0;
+    $("useRows").innerHTML = (j.usage||[]).map(d=>{
+      tot += d.tokens||0; req += d.reqs||0;
+      const models = Object.entries(d.models||{}).map(([m,n])=>`${esc(String(m).split("/").pop())}×${n}`).join("、") || "--";
+      return `<tr><td>${esc(d.day||"")}</td><td>${d.tokens||0}</td><td>${d.reqs||0}</td><td>${esc(d.users||0)} 帳號 · ${models}</td></tr>`;
+    }).join("") || '<tr><td colspan="4" class="muted">尚無用量</td></tr>';
+    $("useTotal").textContent = `共 ${tot} tokens / ${req} 次`;
+  }catch(e){ $("useRows").innerHTML = `<tr><td colspan="4" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
+}
 (function boot(){
-  const t = token(); if(t) $("adminToken").value = t;
-  if(t) loadAll();
+  const t = token();
+  if(!t) return location.href = "/login";   // 未登入強制去登入頁
+  if(localStorage.getItem("gr_admin_token")) $("adminToken").value = t;
+  // 驗證身分：非 admin 踢去 /me
+  fetch("/api/auth?action=me", { headers:{Authorization:"Bearer "+t} })
+    .then(r=>r.json()).then(j=>{
+      if(!j.ok) return location.href = "/login";
+      if(j.kind!=="admin" && !(j.user&&j.user.role==="admin")) return location.href = "/me";
+      loadAll(); loadUsage();
+    }).catch(()=>location.href="/login");
 })();
 </script>
 </body>
