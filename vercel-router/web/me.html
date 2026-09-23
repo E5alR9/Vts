@@ -15,6 +15,7 @@
   <div class="grp">開發者</div>
   <a href="#/api" data-nav="api"><span class="ico">🔑</span>API 金鑰</a>
   <a href="#/prices" data-nav="prices"><span class="ico">📘</span>模型價格</a>
+  <a href="#/play" data-nav="play"><span class="ico">🧪</span>Playground 試玩</a>
   <div class="grp">帳號</div>
   <a href="#/account" data-nav="account"><span class="ico">👤</span>帳號 / 點數</a>
   <div class="grp admOnly" style="display:none">管理（admin）</div>
@@ -25,7 +26,6 @@
   <a class="admOnly" style="display:none" href="#/promo" data-nav="promo"><span class="ico">🎉</span>活動 / 方案</a>
   <a class="admOnly" style="display:none" href="#/logs" data-nav="logs"><span class="ico">🧾</span>請求日誌</a>
   <a class="admOnly" style="display:none" href="#/keypress" data-nav="keypress"><span class="ico">📶</span>KEY 壓力</a>
-  <a class="admOnly" style="display:none" href="#/play" data-nav="play"><span class="ico">🧪</span>Playground</a>
   <a class="admOnly" style="display:none" href="#/system" data-nav="system"><span class="ico">🔐</span>系統</a>
   <div class="side-foot">Groq Router · 統一控制台</div>
 </div>
@@ -239,7 +239,7 @@
 
   <!-- ════════ 管理：Playground ════════ -->
   <section id="secPlay" style="grid-column:span 12">
-    <h2>🧪 Playground <small>用你的 admin 身分試模型</small></h2>
+    <h2>🧪 Playground <small>花自己的點數試模型 · 照官方價即時扣（admin 帳號不扣）</small></h2>
     <div style="display:flex;gap:8px">
       <select id="playModel" style="flex:none;max-width:190px">
         <option value="qwen/qwen3.8-27b">qwen3.8-27b（10x）</option>
@@ -495,7 +495,7 @@ const PAGES = {
 const PAGE_TITLE = { dash:"儀表板", usage:"用量明細", api:"API 金鑰", prices:"模型價格", account:"帳號 / 點數",
   users:"帳號管理", channels:"渠道", keys:"金鑰池", billing:"計費 / 我的邀請碼",
   promo:"活動 / 方案", logs:"請求日誌", keypress:"KEY 壓力", play:"Playground", system:"系統" };
-const USER_PAGES = new Set(["dash","usage","api","prices","account"]);
+const USER_PAGES = new Set(["dash","usage","api","prices","play","account"]);
 let ACTIVE = new Set(Object.keys(PAGES));
 function buildPages(){
   const main = document.querySelector("main");
@@ -709,7 +709,7 @@ async function playRun(){
     const j = await r.json();
     if(!r.ok) throw new Error((j.error&&j.error.message)||r.status);
     $("playOut").textContent = (j.choices&&j.choices[0]&&j.choices[0].message.content) || JSON.stringify(j).slice(0,500);
-    loadLogs();
+    if(IS_ADMIN) loadLogs();
   }catch(e){ $("playOut").textContent = "失敗："+e.message; }
 }
 async function loadChannels(){
@@ -1126,7 +1126,8 @@ async function loadPlayModels(){
   renderCal();
   loadPrices();   // 模型價格表 + 規格報表（兩種角色都載）
   loadSpeed();    // 實測速度折線圖（用戶自己的 / admin 全站）
-  if(IS_ADMIN){ loadAll(); loadChannels(); loadLogs(); loadPromo(); loadKeyPress(); loadPlayModels(); }   // loadAll 內含 usage/invites/pricing/keys/users
+  loadPlayModels();  // 試玩模型清單（全角色）
+  if(IS_ADMIN){ loadAll(); loadChannels(); loadLogs(); loadPromo(); loadKeyPress(); }   // loadAll 內含 usage/invites/pricing/keys/users
   else { loadUsage(); }
 })();
 </script>
