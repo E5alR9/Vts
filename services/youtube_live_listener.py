@@ -169,6 +169,20 @@ def parse_live_chat_response(data):
         messages.append({"user": author, "message": text})
 
     cont = lc.get("continuation")
+    if not cont:                                  # 下一代 token 藏在 continuations 陣列裡
+        for c in (lc.get("continuations") or []):
+            icd = (c or {}).get("invalidationContinuationData") \
+                or (c or {}).get("timedContinuationData") \
+                or (c or {}).get("liveChatReplayContinuationData") or {}
+            if icd.get("continuation"):
+                cont = icd["continuation"]
+                break
+    if not cont:                                  # 最後手段：整包深度搜第一個長 token
+        for m in re.finditer(r'"continuation":"([A-Za-z0-9_%\-\.]{40,})"', json.dumps(lc)):
+            t = m.group(1)
+            if t not in ("", None):
+                cont = t
+                break
     timeout_ms = lc.get("timeoutMs") or 8000
     wait = max(5.0, min(15.0, float(timeout_ms) / 1000.0))   # 官方給幾秒就等幾秒（上下限 5~15s）
     return messages, cont, wait
@@ -239,7 +253,7 @@ async def youtube_live_worker(input_queue):
 
                 while True:                           # 內層：輪詢聊天
                     resp = await cli.post(_API, headers=headers,
-                                          json={"context": {"client": _CLIENT}, "token": cont})
+                                          json={"context": {"client": _CLIENT}, "continuation": cont})
                     if resp.status_code != 200:
                         log_print(f"⚠️ [YouTube] get_live_chat HTTP {resp.status_code} → 重新抓 continuation")
                         cont = None

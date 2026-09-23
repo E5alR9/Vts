@@ -141,6 +141,24 @@ def test_parse_live_chat_response_basic():
     assert wait == 5.0
 
 
+def test_parse_live_chat_response_nextgen_continuation_shapes():
+    """真實 InnerTube 形狀：continuations[0].invalidationContinuationData.continuation"""
+    data = {"continuationContents": {"liveChatContinuation": {
+        "actions": [], "timeoutMs": 9000,
+        "continuations": [{"invalidationContinuationData": {
+            "continuation": "INVD_" + "X" * 40, "invalidationId": {}}}]}}}
+    msgs, cont, wait = parse_live_chat_response(data)
+    assert msgs == [] and cont == "INVD_" + "X" * 40 and wait == 9.0
+
+    # timedContinuationData 變體
+    data2 = {"liveChatContinuation": {
+        "continuations": [{"timedContinuationData": {"continuation": "TIMED_" + "Y" * 40}}]}}
+    assert parse_live_chat_response(data2)[1] == "TIMED_" + "Y" * 40
+
+    # 三處都沒有 → 回 None（呼叫端重抓）
+    assert parse_live_chat_response({"actions": []}) == ([], None, 8.0)
+
+
 def test_parse_live_chat_response_author_fallback_and_no_timeout():
     msgs, cont, wait = parse_live_chat_response(_sample_response(with_author=False, with_timeout=False))
     assert msgs[0]["user"] == "觀眾"          # 沒 authorName → 兜底
