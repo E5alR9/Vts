@@ -4,8 +4,8 @@
     { "source": "/", "destination": "/web/login.html" },
     { "source": "/v1/chat/completions", "destination": "/api/chat" },
     { "source": "/v1/models", "destination": "/api/models" },
-    { "source": "/admin", "destination": "/web/admin.html" },
-    { "source": "/admin/", "destination": "/web/admin.html" },
+    { "source": "/admin", "destination": "/web/me.html" },
+    { "source": "/admin/", "destination": "/web/me.html" },
     { "source": "/login", "destination": "/web/login.html" },
     { "source": "/me", "destination": "/web/me.html" }
   ],

@@ -300,4 +300,96 @@ async function getUsage(days) {
   return out;
 }
 
-module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, logRequest, getLogs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel };
+/* ── 方案（plus/pro/max/ultra 預留）：gr:plans {id:{label,monthlyQuota,rewardMult}} ── */
+const DEFAULT_PLANS = {
+  free:  { label: "Free",  monthlyQuota: 0,       rewardMult: 1 },
+  plus:  { label: "Plus",  monthlyQuota: 30000,   rewardMult: 1 },
+  pro:   { label: "Pro",   monthlyQuota: 100000,  rewardMult: 1 },
+  max:   { label: "Max",   monthlyQuota: 300000,  rewardMult: 1 },
+  ultra: { label: "Ultra", monthlyQuota: 1000000, rewardMult: 1 },
+};
+
+async function getPlans() {
+  const k = kv();
+  if (!k) return JSON.parse(JSON.stringify(DEFAULT_PLANS));
+  try {
+    const raw = await k.get("gr:plans");
+    const p = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {};
+    return { ...JSON.parse(JSON.stringify(DEFAULT_PLANS)), ...p };
+  } catch { return JSON.parse(JSON.stringify(DEFAULT_PLANS)); }
+}
+
+async function setPlans(p) {
+  const k = kv();
+  if (!k) throw new Error("NO_KV");
+  await k.set("gr:plans", JSON.stringify(p));
+}
+
+/* ── 活動：gr:event {enabled,label,mult,until}；activeEvent() 回目前有效的，否則 null ── */
+async function getEvent() {
+  const k = kv();
+  if (!k) return { enabled: false, label: "", mult: 1, until: "" };
+  try {
+    const raw = await k.get("gr:event");
+    const e = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {};
+    return { enabled: false, label: "", mult: 1, until: "", ...e };
+  } catch { return { enabled: false, label: "", mult: 1, until: "" }; }
+}
+
+async function setEvent(e) {
+  const k = kv();
+  if (!k) throw new Error("NO_KV");
+  await k.set("gr:event", JSON.stringify(e));
+}
+
+function activeEvent(ev) {
+  if (!ev || !ev.enabled) return null;
+  const t = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  const today = `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}`;
+  if (ev.until && today > String(ev.until)) return null;
+  return ev;
+}
+
+/* ── KEY 壓力統計（只記流量數字，零內容）：gr:keystat {day, keys:{hash:{prefix,reqs,tokens,errs,ts[]}}} ── */
+function keyStatHash(key) {
+  return "h_" + require("crypto").createHash("sha256").update(key).digest("hex").slice(0, 12);
+}
+
+async function recordKeyStat(key, opts) {
+  const k = kv();
+  if (!k) return;
+  const o = opts || {};
+  try {
+    let s = null;
+    try {
+      const raw = await k.get("gr:keystat");
+      s = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : null;
+    } catch { s = null; }
+    const t = new Date();
+    const p = (n) => String(n).padStart(2, "0");
+    const day = `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}`;
+    if (!s || s.day !== day || !s.keys) s = { day, keys: {} };
+    const h = keyStatHash(key);
+    const e = s.keys[h] || { prefix: mask(key), reqs: 0, tokens: 0, errs: 0, ts: [] };
+    e.reqs += 1;
+    e.tokens += Math.max(0, Number(o.tokens) || 0);
+    if (o.err) e.errs += 1;
+    const now = Date.now();
+    e.ts = [...(e.ts || []), now].filter((x) => now - x < 60000).slice(-120);
+    s.keys[h] = e;
+    await k.set("gr:keystat", JSON.stringify(s), { ex: 2 * 86400 });
+  } catch { /* 統計失敗不影響回應 */ }
+}
+
+async function getKeyStat() {
+  const k = kv();
+  if (!k) return { day: "", keys: {} };
+  try {
+    const raw = await k.get("gr:keystat");
+    const s = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : null;
+    return s && s.keys ? s : { day: "", keys: {} };
+  } catch { return { day: "", keys: {} }; }
+}
+
+module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, logRequest, getLogs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel, getPlans, setPlans, DEFAULT_PLANS, getEvent, setEvent, activeEvent, keyStatHash, recordKeyStat, getKeyStat };

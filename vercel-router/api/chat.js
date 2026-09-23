@@ -151,12 +151,14 @@ module.exports = async (req, res) => {
     // 沒有渠道（或 KV 未開）→ 用全池（env + 管理的 keys）
     let roundKeys = keys;
     let channelName = "";
+    let channelZdr = false;
     try {
       const chs = await store.getChannels();
       const picked = chs ? store.pickChannel(chs, model) : null;
       if (picked && (picked.keys || []).length) {
         roundKeys = picked.keys;
         channelName = picked.name || picked.id;
+        channelZdr = !!picked.zdr;
       }
     } catch { /* 渠道讀取失敗就用全池 */ }
 
@@ -179,6 +181,7 @@ module.exports = async (req, res) => {
         upstream = await fetch(GROQ_URL, init);
       } catch (e) {
         coolKey(gkey, 503);
+        try { await store.recordKeyStat(gkey, { err: true }); } catch {}
         lastError = { status: 502, payload: { error: { message: `network: ${e.message}` } } };
         continue;
       }
@@ -188,6 +191,8 @@ module.exports = async (req, res) => {
         res.setHeader("x-router-key-index", String(idx));
         res.setHeader("x-router-key-count", String(roundKeys.length));
         if (channelName) res.setHeader("x-router-channel", channelName);
+        // ZDR（Zero Data Retention）：本中轉全程不存訊息內容，只記 token 流量
+        if (channelZdr || process.env.ZDR === "1") res.setHeader("x-router-zdr", "1");
 
         // user 帳號扣點（admin/legacy 不扣；-1 無限不扣）——見下方各分支內聯實作
         // （扣點必須在 res.end() 之前完成，否則 x-credits-left 發不出去）
@@ -210,6 +215,7 @@ module.exports = async (req, res) => {
               }
             } catch { /* 忽略 */ }
           }
+          try { await store.recordKeyStat(gkey, { tokens: estimateCost(body, "") }); } catch {}
           res.statusCode = 200;
           res.setHeader("Content-Type", upstream.headers.get("content-type") || "text/event-stream");
           res.setHeader("Cache-Control", "no-cache");
@@ -225,7 +231,9 @@ module.exports = async (req, res) => {
         }
 
         const text = await upstream.text();
-        const cost = Math.ceil(estimateCost(body, text) * store.priceFor(await store.getPricing(), model));
+        const tokens = estimateCost(body, text);
+        const cost = Math.ceil(tokens * store.priceFor(await store.getPricing(), model));
+        try { await store.recordKeyStat(gkey, { tokens }); } catch {}
         // 先扣點再 end（header 必須在 end 之前設，否則發不出去）
         if (caller.kind === "user" && caller.user.credits !== -1) {
           try {
@@ -258,6 +266,7 @@ module.exports = async (req, res) => {
       }
       const msg = (payload && payload.error && payload.error.message) || "";
       coolKey(gkey, status);
+      try { await store.recordKeyStat(gkey, { err: true }); } catch {}
       lastError = { status: status === 404 ? 502 : status, payload: payload || { error: { message: `HTTP ${status}` } } };
 
       // 模型不存在 / 模型名錯誤 → 換下一階模型（跟金鑰無關，繼續敲同一把也沒用）

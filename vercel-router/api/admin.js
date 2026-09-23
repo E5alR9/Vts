@@ -280,6 +280,7 @@ module.exports = async (req, res) => {
       const list = Object.entries(chs).map(([id, c]) => ({
         id, name: c.name || id, keys: (c.keys || []).length,
         weight: c.weight || 1, models: c.models || [],
+        zdr: !!c.zdr,
         disabled: !!c.disabled, createdAt: c.createdAt || "",
       }));
       return sendJson(res, 200, { ok: true, channels: list });
@@ -291,6 +292,7 @@ module.exports = async (req, res) => {
       const id = store.newChannelId();
       chs[id] = { name, keys: [], weight: Math.max(1, Number(body.weight) || 1),
         models: Array.isArray(body.models) ? body.models.filter(Boolean) : [],
+        zdr: !!body.zdr,
         disabled: false, createdAt: new Date().toISOString() };
       await store.setChannels(chs);
       return sendJson(res, 200, { ok: true, id });
@@ -310,6 +312,7 @@ module.exports = async (req, res) => {
       }
       if (f.models !== undefined) c.models = Array.isArray(f.models) ? f.models.filter(Boolean) : [];
       if (f.disabled !== undefined) c.disabled = !!f.disabled;
+      if (f.zdr !== undefined) c.zdr = !!f.zdr;
       await store.setChannels(chs);
       return sendJson(res, 200, { ok: true });
     }
@@ -347,6 +350,81 @@ module.exports = async (req, res) => {
       } catch (e) {
         return sendJson(res, 200, { ok: false, error: String(e.message || e) });
       }
+    }
+
+    // ── 活動（預留：全站獎勵倍率，簽到/推薦套用）──
+    if (action === "event") {
+      return sendJson(res, 200, { ok: true, event: await store.getEvent() });
+    }
+    if (action === "event.set") {
+      const cur = await store.getEvent();
+      const f = body.event || body.fields || {};
+      const ev = { ...cur };
+      if (f.enabled !== undefined) ev.enabled = !!f.enabled;
+      if (f.label !== undefined) ev.label = String(f.label || "").slice(0, 60);
+      if (f.mult !== undefined) {
+        const m = Number(f.mult);
+        if (!Number.isFinite(m) || m < 1 || m > 100) {
+          return sendJson(res, 400, { ok: false, error: { message: "倍率需 1~100" } });
+        }
+        ev.mult = m;
+      }
+      if (f.until !== undefined) {
+        const s = String(f.until || "").trim();
+        if (s && !/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+          return sendJson(res, 400, { ok: false, error: { message: "結束日格式需 YYYY-MM-DD" } });
+        }
+        ev.until = s;
+      }
+      await store.setEvent(ev);
+      return sendJson(res, 200, { ok: true, event: ev, active: Boolean(store.activeEvent(ev)) });
+    }
+
+    // ── 方案（plus/pro/max/ultra 預留：月補點數 + 獎勵倍率）──
+    if (action === "plans") {
+      return sendJson(res, 200, { ok: true, plans: await store.getPlans(), defaults: store.DEFAULT_PLANS });
+    }
+    if (action === "plans.set") {
+      const cur = await store.getPlans();
+      const inPlans = body.plans || {};
+      for (const [id, p] of Object.entries(inPlans)) {
+        if (!cur[id]) continue;
+        if (p.label !== undefined) cur[id].label = String(p.label).slice(0, 20);
+        if (p.monthlyQuota !== undefined) {
+          const q = Number(p.monthlyQuota);
+          if (!Number.isFinite(q) || q < 0) {
+            return sendJson(res, 400, { ok: false, error: { message: `${id}.monthlyQuota 需 >=0` } });
+          }
+          cur[id].monthlyQuota = q;
+        }
+        if (p.rewardMult !== undefined) {
+          const m = Number(p.rewardMult);
+          if (!Number.isFinite(m) || m < 1 || m > 100) {
+            return sendJson(res, 400, { ok: false, error: { message: `${id}.rewardMult 需 1~100` } });
+          }
+          cur[id].rewardMult = m;
+        }
+      }
+      await store.setPlans(cur);
+      return sendJson(res, 200, { ok: true, plans: cur });
+    }
+
+    // ── KEY 壓力（僅流量統計、零內容；管理員限定）──
+    if (action === "keypress") {
+      const s = await store.getKeyStat();
+      const limit = Math.max(1, Number(process.env.KEY_RPM_LIMIT) || 30);
+      const labelBy = {};
+      for (const k of store.envKeys()) labelBy[store.mask(k)] = "env";
+      const managed = (await store.getManagedKeys()) || [];
+      for (const k of managed) labelBy[k.prefix || store.mask(k.key)] = k.label || "管理";
+      const now = Date.now();
+      const list = Object.entries(s.keys || {}).map(([hash, e]) => {
+        const rpm = (e.ts || []).filter((t) => now - t < 60000).length;
+        return { hash, prefix: e.prefix || hash, source: labelBy[e.prefix] || "渠道",
+          reqs: e.reqs || 0, tokens: e.tokens || 0, errs: e.errs || 0,
+          rpm, pressure: Math.min(100, Math.round((rpm / limit) * 100)) };
+      }).sort((x, y) => y.rpm - x.rpm || y.reqs - x.reqs);
+      return sendJson(res, 200, { ok: true, day: s.day || "", limit, keys: list });
     }
 
     // ── 計費表（模型倍率；扣點 = tokens × 倍率）──

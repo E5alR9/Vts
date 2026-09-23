@@ -16,45 +16,74 @@
   <a href="#/api" data-nav="api"><span class="ico">🔑</span>API 金鑰</a>
   <div class="grp">帳號</div>
   <a href="#/account" data-nav="account"><span class="ico">👤</span>帳號 / 點數</a>
-  <div class="side-foot">Groq Router · 用戶控制台</div>
+  <div class="grp admOnly" style="display:none">管理（admin）</div>
+  <a class="admOnly" style="display:none" href="#/users" data-nav="users"><span class="ico">👥</span>帳號管理</a>
+  <a class="admOnly" style="display:none" href="#/channels" data-nav="channels"><span class="ico">🔀</span>渠道</a>
+  <a class="admOnly" style="display:none" href="#/keys" data-nav="keys"><span class="ico">🔑</span>金鑰池</a>
+  <a class="admOnly" style="display:none" href="#/billing" data-nav="billing"><span class="ico">🎟️</span>計費 / 我的邀請碼</a>
+  <a class="admOnly" style="display:none" href="#/promo" data-nav="promo"><span class="ico">🎉</span>活動 / 方案</a>
+  <a class="admOnly" style="display:none" href="#/logs" data-nav="logs"><span class="ico">🧾</span>請求日誌</a>
+  <a class="admOnly" style="display:none" href="#/keypress" data-nav="keypress"><span class="ico">📶</span>KEY 壓力</a>
+  <a class="admOnly" style="display:none" href="#/play" data-nav="play"><span class="ico">🧪</span>Playground</a>
+  <a class="admOnly" style="display:none" href="#/system" data-nav="system"><span class="ico">🔐</span>系統</a>
+  <div class="side-foot">Groq Router · 統一控制台</div>
 </div>
 <header>
   <h1><button class="burger" onclick="document.body.classList.toggle('nav-open')">☰</button><span class="logo">⚡</span><span><b>Groq Router</b> <span id="pageTitle">儀表板</span></span></h1>
-  <span class="pill" id="hdrCredits">點數 …</span>
+  <span class="pill admOnly" style="display:none"><span id="kvdot" class="dot"></span><span id="kvtext">未連線</span></span>
+  <span class="pill admOnly" style="display:none" id="stKeys">keys: --</span>
+  <span class="pill admOnly" style="display:none" id="stUsers">users: --</span>
+  <span class="pill" id="hdrCredits">…</span>
+  <span style="flex:1"></span>
+  <button class="admOnly" style="display:none" onclick="loadAll()">↻ 重新整理</button>
   <button onclick="logout()">登出</button>
 </header>
 <main>
+  <!-- ════════ 儀表板（兩種角色共用；管理區塊 admin 才顯） ════════ -->
   <section id="secDash" style="grid-column:span 12">
+    <div class="admOnly" style="display:none">
+      <h2>📊 今日營運 <small id="dashDate"></small></h2>
+      <div class="stats" id="dashStats">
+        <div class="stat"><div class="v">--</div><div class="l">今日 tokens</div></div>
+        <div class="stat"><div class="v">--</div><div class="l">今日請求</div></div>
+        <div class="stat"><div class="v">--</div><div class="l">帳號數</div></div>
+        <div class="stat"><div class="v">--</div><div class="l">可用 keys</div></div>
+      </div>
+    </div>
+    <h2>我的概覽 <small id="evtBanner" style="display:none;color:var(--warn);text-transform:none;letter-spacing:0"></small></h2>
     <div class="stats">
       <div class="stat"><div class="v" id="stCredits">–</div><div class="l">可用點數</div></div>
       <div class="stat"><div class="v" id="stTokens">–</div><div class="l">累計 tokens</div></div>
       <div class="stat"><div class="v" id="st7tok">–</div><div class="l">近 7 天 tokens</div></div>
       <div class="stat"><div class="v" id="st7req">–</div><div class="l">近 7 天請求</div></div>
     </div>
-    <h2>📈 近 7 天走勢 <small id="dashTotal"></small></h2>
-    <div id="chart"></div>
-    <div id="chartLbl"></div>
     <h2 style="margin-top:18px">📅 簽到日曆 <small id="calInfo">連續 0 天 · 本月 0 天</small></h2>
-    <div class="cal-h">
+    <div class="cal-h" style="flex-wrap:wrap">
       <button class="cal-nav" onclick="calNav(-1)" aria-label="上個月">‹</button>
       <span id="calTitle">–</span>
       <button class="cal-nav" onclick="calNav(1)" aria-label="下個月">›</button>
       <span class="muted">🟦 已簽到 · ○ 今天</span>
+      <button class="primary" id="btnCheckin" onclick="checkin()">📅 簽到 +100</button>
     </div>
     <div class="cal-grid" id="calGrid"></div>
-    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
-      <button class="primary" onclick="checkin()">📅 每日簽到領點數</button>
-      <button onclick="location.hash='#/api'">🔑 取得 API 金鑰</button>
-      <button onclick="location.hash='#/account'">🎟️ 兌換邀請碼</button>
-    </div>
   </section>
 
+  <section id="secStatus" class="admOnly" style="display:none">
+    <h2>📊 總覽</h2>
+    <div class="kv" id="kvStatus"><div>狀態</div><div>尚未連線</div></div>
+  </section>
+
+  <!-- ════════ 用量明細（含圖表） ════════ -->
   <section id="secUsage" style="grid-column:span 12">
-    <h2>📊 用量明細（近 7 天）<small id="useTotal"></small></h2>
-    <table><thead><tr><th>日期</th><th>tokens</th><th>請求</th><th>模型</th></tr></thead>
+    <h2>📈 用量明細（近 7 天） <small id="useTotal"></small></h2>
+    <div id="chart"></div>
+    <div id="chartLbl"></div>
+    <div class="muted" style="margin-top:6px">近 7 天用量（tokens / 天，左→右由舊到新）</div>
+    <table><thead><tr><th>日期</th><th>tokens</th><th>請求</th><th id="useCol4">模型</th></tr></thead>
     <tbody id="useRows"><tr><td colspan="4" class="muted">載入中…</td></tr></tbody></table>
   </section>
 
+  <!-- ════════ API 金鑰 ════════ -->
   <section id="secApi" style="grid-column:span 12">
     <h2>🔑 API 金鑰 <small>把金鑰當 api_key 打到 OpenAI 相容端點</small></h2>
     <div class="kv">
@@ -70,66 +99,203 @@
     <pre id="snipCurl"></pre><button onclick="cpText('snipCurl','已複製 curl 範例 ✅')">複製</button>
   </section>
 
+  <!-- ════════ 帳號 / 點數 ════════ -->
   <section id="secAccount" style="grid-column:span 12">
     <h2>👤 帳號</h2>
     <div class="kv" id="kvMe"><div>狀態</div><div>載入中…</div></div>
-    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
-      <button class="primary" onclick="checkin()">📅 每日簽到領點數</button>
-      <button class="danger" onclick="logout()">🚪 登出</button>
-    </div>
     <h2 style="margin-top:16px">🎟️ 兌換邀請碼</h2>
     <div style="display:flex;gap:8px">
       <input type="text" id="invCode" placeholder="例如：X7K2-9PQ4" style="flex:1">
       <button class="primary" onclick="redeem()">兌換</button>
     </div>
-    <div class="muted" style="margin-top:10px">沒有邀請碼？找管理員拿，或每天簽到領 <code>CHECKIN_CREDITS</code> 點。</div>
+    <div class="muted" style="margin-top:10px">沒有邀請碼？每天在儀表板簽到領點數。</div>
+    <h2 style="margin-top:16px">🔗 我的推薦碼 <small>朋友兌換後，你和朋友「雙向」都拿獎勵</small></h2>
+    <div class="kv">
+      <div>推薦碼</div><div><code id="refCode">–</code> <button onclick="cpText('refCode','已複製推薦碼 ✅')">複製</button></div>
+      <div>專屬連結</div><div><code id="refLink">–</code> <button onclick="cpText('refLink','已複製連結 ✅')">複製</button></div>
+      <div>我推薦了</div><div id="refCount">0 人</div>
+      <div>我的來源</div><div id="refFrom">–（自己註冊）</div>
+    </div>
+    <div class="muted" style="margin-top:8px">朋友貼上你的碼（或開你的專屬連結）兌換 → 雙方各拿一筆獎勵（<code>REFERRAL_CREDITS</code>，活動期間再乘倍率）。每人限用一次推薦碼。</div>
+  </section>
+
+  <!-- ════════ 管理：帳號管理 ════════ -->
+  <section id="secUsers">
+    <h2>👥 帳號與點數 <small>token 建好只顯示一次；點數 -1 = 無限</small></h2>
+    <div class="grid2">
+      <div><label>名稱</label><input type="text" id="newUserName" placeholder="例如：小夏子"></div>
+      <div><label>角色</label><select id="newUserRole"><option value="user">user（受點數限制）</option><option value="admin">admin（全權限）</option></select></div>
+      <div><label>初始點數（tokens）</label><input type="number" id="newUserCredits" value="10000" min="-1"></div>
+    <div style="display:flex;gap:8px;margin-top:6px">
+      <input type="text" id="userFilter" placeholder="🔍 搜尋名稱…" style="max-width:280px" oninput="renderUsers()">
+      <button class="primary" onclick="addUser()">＋ 建帳號</button>
+    </div>
+    </div>
+    <table><thead><tr><th>名稱</th><th>角色</th><th>點數</th><th>token</th><th>操作</th></tr></thead>
+    <tbody id="userRows"><tr><td colspan="5" class="muted">尚未載入</td></tr></tbody></table>
+  </section>
+
+  <!-- ════════ 管理：渠道 ════════ -->
+  <section id="secChannels" style="grid-column:span 12">
+    <h2>🔀 渠道 <small>多組 key 分組、按權重路由、可限模型；沒建渠道時走全池</small></h2>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+      <div><label>名稱</label><input type="text" id="newChName" placeholder="例如：主力-01" style="min-width:180px"></div>
+      <div><label>權重（1~100）</label><input type="number" id="newChWeight" value="1" min="1" max="100" style="max-width:110px"></div>
+      <div><label>限定模型（空=全部，逗號分隔）</label><input type="text" id="newChModels" placeholder="例：qwen/qwen3.8-27b" style="min-width:220px"></div>
+      <div><label>&nbsp;</label><button class="primary" onclick="addChannel()">＋ 建渠道</button></div>
+    </div>
+    <table><thead><tr><th>名稱</th><th>keys</th><th>權重</th><th>模型</th><th>狀態</th><th>ZDR</th><th>操作</th></tr></thead>
+    <tbody id="chRows"><tr><td colspan="7" class="muted">載入中…</td></tr></tbody></table>
+  </section>
+
+  <!-- ════════ 管理：金鑰池 ════════ -->
+  <section id="secKeys">
+    <h2>🔑 Groq 金鑰 <small>env 基底唯讀；KV 管理的可增減/停用</small></h2>
+    <div class="grid2">
+      <div><label>新增金鑰（gsk_ 開頭）</label>
+        <input type="text" id="newKey" placeholder="gsk_…" autocomplete="off"></div>
+      <div><label>標籤（選填）</label>
+        <input type="text" id="newKeyLabel" placeholder="例如：備用-01"></div>
+    </div>
+    <div style="margin-top:8px"><button class="primary" onclick="addKey()">＋ 新增</button></div>
+    <table><thead><tr><th>前綴</th><th>來源</th><th>標籤</th><th>狀態</th><th>操作</th></tr></thead>
+    <tbody id="keyRows"><tr><td colspan="5" class="muted">尚未載入</td></tr></tbody></table>
+  </section>
+
+  <!-- ════════ 管理：計費 + 我的邀請碼 ════════ -->
+  <section id="secPricing" style="grid-column:span 12">
+    <h2>💰 計費表 <small>扣點 = tokens × 倍率；改完立即生效</small></h2>
+    <table><thead><tr><th>模型</th><th>倍率</th><th>說明</th></tr></thead>
+    <tbody id="priceRows"><tr><td colspan="3" class="muted">載入中…</td></tr></tbody></table>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="primary" onclick="savePricing()">💾 儲存倍率</button>
+      <button onclick="resetPricing()">恢復預設</button>
+    </div>
+  </section>
+  <section id="secInvites" style="grid-column:span 12">
+    <h2>🎟️ 我的邀請碼 <small>你建立的碼；發給用戶兌換即加點</small></h2>
+    <div class="grid2" style="grid-template-columns:1fr 1fr 1fr auto">
+      <div><label>點數</label><input type="number" id="invCredits" value="1000" min="1"></div>
+      <div><label>可用次數</label><input type="number" id="invMaxUses" value="1" min="1"></div>
+      <div style="display:flex;align-items:flex-end"><button class="primary" onclick="createInvite()">＋ 生成</button></div>
+    </div>
+    <table><thead><tr><th>邀請碼</th><th>點數</th><th>已用/上限</th><th>狀態</th><th>操作</th></tr></thead>
+    <tbody id="invRows"><tr><td colspan="5" class="muted">載入中…</td></tr></tbody></table>
+  </section>
+
+  <!-- ════════ 管理：活動（預留） ════════ -->
+  <section id="secEvent" style="grid-column:span 12">
+    <h2>🎉 活動 <small>預留：啟用後全站「獎勵」（簽到 / 推薦）乘上倍率；之後要辦什麼活動改這裡就好</small></h2>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+      <div><label>開關</label><button id="evtToggle" class="primary" onclick="toggleEvent()">⚪ 未啟用</button></div>
+      <div><label>活動名稱</label><input type="text" id="evtLabel" placeholder="例如：開幕雙倍" style="min-width:170px"></div>
+      <div><label>獎勵倍率（1~100）</label><input type="number" id="evtMult" value="2" min="1" max="100" step="0.5" style="max-width:120px"></div>
+      <div><label>結束日（YYYY-MM-DD，空=永久）</label><input type="text" id="evtUntil" placeholder="2026-12-31" style="max-width:160px"></div>
+      <div><label>&nbsp;</label><button class="primary" onclick="saveEvent()">💾 儲存</button></div>
+    </div>
+    <div class="muted" id="evtState" style="margin-top:10px">狀態：–</div>
+  </section>
+
+  <!-- ════════ 管理：方案（預留） ════════ -->
+  <section id="secPlans" style="grid-column:span 12">
+    <h2>💎 方案 <small>plus / pro / max / ultra 預留結構：月補點數 + 獎勵倍率；之後接金流直接用</small></h2>
+    <table><thead><tr><th>方案</th><th>每月補點（0=無）</th><th>獎勵倍率（簽到/推薦）</th></tr></thead>
+    <tbody id="planRows"><tr><td colspan="3" class="muted">載入中…</td></tr></tbody></table>
+    <div style="margin-top:10px"><button class="primary" onclick="savePlans()">💾 儲存方案</button></div>
+    <div class="muted" style="margin-top:8px">套用方式：帳號管理 → 「訂閱」選方案名（free/plus/pro/max/ultra）。選了方案的帳號每月自動補點、獎勵照倍率發。</div>
+  </section>
+
+  <!-- ════════ 管理：請求日誌 ════════ -->
+  <section id="secLogs" style="grid-column:span 12">
+    <h2>🧾 請求日誌 <small>最新 100 筆 · 🔒 ZDR：全程不保存訊息內容，管理員只看得到 token 流量</small></h2>
+    <table><thead><tr><th>時間</th><th>用戶</th><th>模型</th><th>tokens</th></tr></thead>
+    <tbody id="logRows"><tr><td colspan="4" class="muted">載入中…</td></tr></tbody></table>
+  </section>
+
+  <!-- ════════ 管理：Playground ════════ -->
+  <section id="secPlay" style="grid-column:span 12">
+    <h2>🧪 Playground <small>用你的 admin 身分試模型</small></h2>
+    <div style="display:flex;gap:8px">
+      <select id="playModel" style="flex:none;max-width:190px">
+        <option value="qwen/qwen3.8-27b">qwen3.8-27b（10x）</option>
+        <option value="openai/gpt-oss-20b">gpt-oss-20b（1x）</option>
+        <option value="openai/gpt-oss-120b">gpt-oss-120b（2x）</option>
+        <option value="allam-2-7b">allam-2-7b（0.5x）</option>
+      </select>
+      <input type="text" id="playText" placeholder="輸入一句話試試…" style="flex:1">
+      <button class="primary" style="flex:none" onclick="playRun()">送出</button>
+    </div>
+    <div id="playOut" class="muted" style="margin-top:8px;white-space:pre-wrap;max-height:300px;overflow:auto">在這裡顯示回應…</div>
+  </section>
+
+  <!-- ════════ 管理：KEY 壓力表 ════════ -->
+  <section id="secKeyPress" style="grid-column:span 12">
+    <h2>📶 每把 KEY 的 Token 壓力 <small>僅管理員 · 只有流量數字，零訊息內容（ZDR）</small></h2>
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+      <button class="primary" onclick="loadKeyPress()">↻ 更新</button>
+      <span class="muted" id="kpDay">–</span>
+      <span class="muted" id="kpLimit"></span>
+    </div>
+    <table><thead><tr><th>金鑰</th><th>來源</th><th>今日請求</th><th>今日 tokens</th><th>錯誤</th><th>壓力（近 1 分鐘）</th></tr></thead>
+    <tbody id="kpRows"><tr><td colspan="6" class="muted">載入中…</td></tr></tbody></table>
+    <div class="muted" style="margin-top:8px">壓力 ＝ 近 1 分鐘請求 ÷ <code>KEY_RPM_LIMIT</code>（env，預設 30）。≥80% 亮紅（快被 429 了，考慮加分攤或降權重）。</div>
+  </section>
+
+  <!-- ════════ 管理：系統（登入方式） ════════ -->
+  <section id="secLogin">
+    <h2>🔐 登入方式 <small>已登入 session 優先；ADMIN_TOKEN 是最高後門</small></h2>
+    <div style="display:flex;gap:8px">
+      <input type="text" id="adminToken" placeholder="貼上 ADMIN_TOKEN 直連（緊急用）…" autocomplete="off">
+      <button class="primary" style="flex:none" onclick="saveToken()">連線</button>
+      <button style="flex:none" onclick="logout()">登出</button>
+    </div>
   </section>
 </main>
 <div id="toast"></div>
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
-const ses = localStorage.getItem("gr_session");
-if(!ses) location.href = "/login";
+function toast(msg, err){ const d=document.createElement("div"); d.textContent=msg; if(err)d.className="err";
+  $("toast").appendChild(d); setTimeout(()=>d.remove(), err?5200:2600); }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
-function toast(msg, err){
-  const d = document.createElement("div");
-  if(err) d.className = "err";
-  d.textContent = msg; $("toast").appendChild(d);
-  setTimeout(()=>d.remove(), 3500);
+
+/* ── 身分 ── */
+let ME = null, IS_ADMIN = false;
+function token(){
+  return localStorage.getItem("gr_session") || localStorage.getItem("gr_admin_token") || "";
 }
 async function post(body){
   const r = await fetch("/api/auth",{method:"POST",
-    headers:{"Content-Type":"application/json",Authorization:"Bearer "+ses},
+    headers:{"Content-Type":"application/json",Authorization:"Bearer "+token()},
     body:JSON.stringify(body)});
   return r.json();
 }
-let ME = null;
-function renderKv(u){
-  const credits = u.credits===-1 ? "無限" : u.credits;
-  $("kvMe").innerHTML = [
-    ["名稱", u.name], ["角色", u.role], ["點數", credits],
-    ["累計用量", (u.usedTokens||0)+" tokens"],
-    ["註冊時間", u.createdAt ? u.createdAt.slice(0,10) : "--"],
-  ].map(([k,v])=>`<div>${esc(k)}</div><div>${esc(v)}</div>`).join("");
-}
-function setCredits(c){
-  if (ME) ME.credits = c;
-  const disp = c===-1 ? "無限" : c;
-  const sc = $("stCredits"); if (sc) sc.textContent = disp;
-  const hc = $("hdrCredits"); if (hc) hc.textContent = `👤 ${ME ? ME.name : ""} · 點數 ${disp}`;
-  if (ME) renderKv(ME);
-}
 function logout(){
-  post({action:"logout"}).finally(()=>{ localStorage.removeItem("gr_session"); location.href="/login"; });
+  post({action:"logout"}).catch(()=>{});
+  localStorage.removeItem("gr_session"); localStorage.removeItem("gr_admin_token");
+  setTimeout(()=>location.href="/login", 250);
 }
+function saveToken(){ const v=$("adminToken").value.trim(); if(!v) return toast("請貼上 ADMIN_TOKEN",true);
+  localStorage.setItem("gr_admin_token", v); toast("已保存，連線中…"); setTimeout(()=>location.reload(), 400); }
+async function api(action, body, method){
+  const opt = { method: method||(body?"POST":"GET"),
+    headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+token() } };
+  let url = "/api/admin?action="+encodeURIComponent(action);
+  if(opt.method==="POST") opt.body = JSON.stringify({action, ...(body||{})});
+  const r = await fetch(url, opt);
+  let j=null; try{ j=await r.json(); }catch(e){}
+  if(!r.ok) throw new Error((j&&(j.error&&j.error.message))||("HTTP "+r.status));
+  return j;
+}
+
+/* ── 使用者：簽到 / 兌換（就地更新，不整頁重載）── */
 async function checkin(){
   try{
     const j = await post({action:"checkin"});
     toast(j.message || (j.ok ? "簽到成功 ✅" : "失敗"), !j.ok);
     if(j.ok){
       if(j.credits !== undefined) setCredits(j.credits);
-      if(j.checked){                      // 就地補日曆，不整頁重載
+      if(j.checked){
         const t = new Date();
         CHECKIN.push(ds(t.getFullYear(), t.getMonth(), t.getDate()));
         renderCal();
@@ -149,6 +315,45 @@ async function redeem(){
 async function cpText(id, msg){
   try{ await navigator.clipboard.writeText($(id).textContent); toast(msg); }
   catch{ toast("複製失敗，請手動選取", true); }
+}
+function renderKv(u){
+  const credits = u.credits===-1 ? "無限" : u.credits;
+  $("kvMe").innerHTML = [
+    ["名稱", u.name], ["角色", u.role], ["點數", credits],
+    ["累計用量", (u.usedTokens||0)+" tokens"],
+    ["註冊時間", u.createdAt ? u.createdAt.slice(0,10) : "--"],
+  ].map(([k,v])=>`<div>${esc(k)}</div><div>${esc(v)}</div>`).join("");
+}
+function setCredits(c){
+  if (ME) ME.credits = c;
+  const disp = c===-1 ? "無限" : c;
+  const sc = $("stCredits"); if (sc) sc.textContent = disp;
+  const hc = $("hdrCredits"); if (hc) hc.textContent = `👤 ${ME ? ME.name : ""} · 點數 ${disp}`;
+  if (ME) renderKv(ME);
+}
+function fillSnippets(key){
+  const BASE = "https://vercel-router-khaki.vercel.app/v1";
+  $("apiKey").textContent = key;
+  $("snipPy").textContent =
+`from openai import OpenAI
+client = OpenAI(base_url="${BASE}", api_key="${key}")
+r = client.chat.completions.create(model="qwen/qwen3.8-27b",
+    messages=[{"role": "user", "content": "你好"}])
+print(r.choices[0].message.content)`;
+  $("snipJs").textContent =
+`const res = await fetch("${BASE}/chat/completions", {
+  method: "POST",
+  headers: { "Content-Type": "application/json",
+             "Authorization": "Bearer ${key}" },
+  body: JSON.stringify({ model: "qwen/qwen3.8-27b",
+    messages: [{ role: "user", content: "你好" }] }),
+});
+console.log(await res.json());`;
+  $("snipCurl").textContent =
+`curl ${BASE}/chat/completions \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer ${key}" \\
+  -d '{"model":"qwen/qwen3.8-27b","messages":[{"role":"user","content":"你好"}]}'`;
 }
 
 /* ── 簽到日曆 ── */
@@ -186,6 +391,17 @@ function renderCal(){
   const mCount = CHECKIN.filter(s =>
     s.startsWith(`${calYear}-${pad2(calMonth + 1)}`)).length;
   $("calInfo").textContent = `連續 ${streak} 天 · 本月 ${mCount} 天`;
+  // 簽到鈕狀態：有帳號才可簽；今天簽過 → 禁用
+  const btn = $("btnCheckin");
+  if (btn) {
+    if (!ME) { btn.style.display = "none"; }
+    else {
+      btn.style.display = "";
+      const done = set.has(today);
+      btn.textContent = done ? "✅ 今日已簽到" : "📅 簽到 +100";
+      btn.disabled = done;
+    }
+  }
 }
 function calNav(delta){
   calMonth += delta;
@@ -194,9 +410,27 @@ function calNav(delta){
   renderCal();
 }
 
-/* ── 側欄多頁路由（section DOM 搬移，同 admin）── */
-const PAGES = { dash:["secDash"], usage:["secUsage"], api:["secApi"], account:["secAccount"] };
-const PAGE_TITLE = { dash:"儀表板", usage:"用量明細", api:"API 金鑰", account:"帳號 / 點數" };
+/* ── 分頁路由（section DOM 搬移包頁，JS/id 全保留）── */
+const PAGES = {
+  dash:     ["secDash", "secStatus"],
+  usage:    ["secUsage"],
+  api:      ["secApi"],
+  account:  ["secAccount"],
+  users:    ["secUsers"],
+  channels: ["secChannels"],
+  keys:     ["secKeys"],
+  billing:  ["secPricing", "secInvites"],
+  promo:    ["secEvent", "secPlans"],
+  logs:     ["secLogs"],
+  keypress: ["secKeyPress"],
+  play:     ["secPlay"],
+  system:   ["secLogin"],
+};
+const PAGE_TITLE = { dash:"儀表板", usage:"用量明細", api:"API 金鑰", account:"帳號 / 點數",
+  users:"帳號管理", channels:"渠道", keys:"金鑰池", billing:"計費 / 我的邀請碼",
+  promo:"活動 / 方案", logs:"請求日誌", keypress:"KEY 壓力", play:"Playground", system:"系統" };
+const USER_PAGES = new Set(["dash","usage","api","account"]);
+let ACTIVE = new Set(Object.keys(PAGES));
 function buildPages(){
   const main = document.querySelector("main");
   for (const [name, ids] of Object.entries(PAGES)) {
@@ -209,7 +443,7 @@ function buildPages(){
 }
 function route(){
   const name = location.hash.replace(/^#\/?/, "") || "dash";
-  const target = PAGES[name] ? name : "dash";
+  const target = ACTIVE.has(name) ? name : "dash";
   document.querySelectorAll(".page").forEach(p => {
     p.style.display = (p.id === "page-" + target) ? "grid" : "none";
   });
@@ -219,70 +453,430 @@ function route(){
   document.body.classList.remove("nav-open");
 }
 window.addEventListener("hashchange", route);
-buildPages();   // 立刻建頁+路由，載入期也不會閃「未路由」狀態
-renderCal();    // 先畫本月框（資料後到再重畫）
+buildPages();   // 立刻建頁+路由，載入期不閃「未路由」狀態
 
-function fillSnippets(key){
-  const BASE = "https://vercel-router-khaki.vercel.app/v1";
-  $("apiKey").textContent = key;
-  $("snipPy").textContent =
-`from openai import OpenAI
-client = OpenAI(base_url="${BASE}", api_key="${key}")
-r = client.chat.completions.create(model="qwen/qwen3.8-27b",
-    messages=[{"role": "user", "content": "你好"}])
-print(r.choices[0].message.content)`;
-  $("snipJs").textContent =
-`const res = await fetch("${BASE}/chat/completions", {
-  method: "POST",
-  headers: { "Content-Type": "application/json",
-             "Authorization": "Bearer ${key}" },
-  body: JSON.stringify({ model: "qwen/qwen3.8-27b",
-    messages: [{ role: "user", content: "你好" }] }),
-});
-console.log(await res.json());`;
-  $("snipCurl").textContent =
-`curl ${BASE}/chat/completions \\
-  -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer ${key}" \\
-  -d '{"model":"qwen/qwen3.8-27b","messages":[{"role":"user","content":"你好"}]}'`;
+/* ════════ 管理端功能（admin 才會呼叫）════════ */
+async function loadPricing(){
+  try{
+    const j = await api("pricing");
+    const p = j.pricing || {};
+    $("priceRows").innerHTML = Object.entries(p).map(([m, mult])=>`<tr>
+      <td class="code">${esc(m)}</td>
+      <td><input type="number" data-pmodel="${esc(m)}" value="${esc(mult)}" min="0.1" max="100" step="0.1" style="max-width:120px"></td>
+      <td class="muted">${mult===1?"基準價":mult<1?"便宜 "+mult+"×":"貴 "+mult+"×"}</td>
+    </tr>`).join("");
+  }catch(e){ $("priceRows").innerHTML = `<tr><td colspan="3" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
+}
+async function savePricing(){
+  const p = {};
+  document.querySelectorAll("[data-pmodel]").forEach(el=>{ p[el.dataset.pmodel] = Number(el.value); });
+  try{ await api("pricing.set",{pricing:p}); toast("計費表已更新，立即生效"); loadPricing(); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
+async function resetPricing(){
+  if(!confirm("恢復預設倍率？")) return;
+  try{ await api("pricing.reset",{}); toast("已恢復預設"); loadPricing(); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
+async function loadAll(){
+  if(!token()){ toast("請先登入", true); return; }
+  try{
+    const [st, keys, users] = await Promise.all([
+      api("status"), api("keys"), api("users"),
+    ]);
+    $("kvdot").className="dot on"; $("kvtext").textContent = st.kv ? "KV 已連線" : "無 KV（唯讀）";
+    $("stKeys").textContent = `keys: env ${st.envKeys} + 管理 ${st.managedKeys}`;
+    $("stUsers").textContent = `users: ${st.users} · 點數總量 ${st.creditsTotal}`;
+    $("kvStatus").innerHTML = [
+      ["KV", st.kv ? "✅ 已連線" : "❌ 未開通（keys 只能讀 env）"],
+      ["env keys", st.envKeys], ["管理的 keys", st.managedKeys],
+      ["帳號數", st.users], ["點數總量", st.creditsTotal],
+      ["ADMIN_TOKEN", st.hasAdminToken ? "已設" : "未設"],
+    ].map(([k,v])=>`<div>${esc(k)}</div><div>${esc(v)}</div>`).join("");
+    renderKeys(keys); renderUsers(users.users||[]);
+    renderDash(st, users.users||[]);
+    loadUsage(); loadInvites(); loadPricing();
+  }catch(e){ $("kvdot").className="dot"; $("kvtext").textContent="連線失敗";
+    toast("載入失敗："+e.message, true); }
+}
+let ALL_USERS = [];
+async function renderDash(st, users){
+  ALL_USERS = users;
+  try{
+    const r = await fetch("/api/auth?action=usage&days=7", { headers:{Authorization:"Bearer "+token()} });
+    const j = await r.json();
+    const days = j.usage||[];
+    const today = days[0] || {tokens:0, reqs:0};   // API 回傳新→舊，第 0 筆是今天
+    $("dashDate").textContent = today.day || "";
+    $("dashStats").innerHTML = [
+      [today.tokens||0, "今日 tokens"],
+      [today.reqs||0, "今日請求"],
+      [st.users||0, "帳號數"],
+      [(st.envKeys||0)+(st.managedKeys||0), "可用 keys"],
+    ].map(([v,l])=>`<div class="stat"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
+  }catch(e){ $("dashStats").innerHTML = `<div class="muted">用量載入失敗</div>`; }
+}
+function renderKeys(j){
+  const rows = [];
+  (j.env||[]).forEach(k=>rows.push(`<tr><td class="code">${esc(k.prefix)}</td>
+    <td><span class="chip">env</span></td><td>${esc(k.label||"")}</td>
+    <td><span class="chip ok">啟用</span></td><td class="muted">env 唯讀</td></tr>`));
+  (j.managed||[]).forEach(k=>rows.push(`<tr><td class="code">${esc(k.prefix)}</td>
+    <td><span class="chip">管理</span></td><td>${esc(k.label||"")}</td>
+    <td>${k.disabled?'<span class="chip bad">停用</span>':'<span class="chip ok">啟用</span>'}</td>
+    <td><div class="rowbtns">
+      <button onclick="toggleKey('${esc(k.id)}',${k.disabled?"false":"true"})">${k.disabled?"啟用":"停用"}</button>
+      <button class="danger" onclick="removeKey('${esc(k.id)}')">刪除</button>
+    </div></td></tr>`));
+  $("keyRows").innerHTML = rows.join("") || '<tr><td colspan="5" class="muted">無</td></tr>';
+}
+async function addKey(){
+  const key=$("newKey").value.trim(); if(!key) return toast("請貼上金鑰",true);
+  try{ await api("keys.add", {key, label:$("newKeyLabel").value.trim()});
+    $("newKey").value=""; $("newKeyLabel").value=""; toast("已新增"); loadAll();
+  }catch(e){ toast("新增失敗："+e.message, true); }
+}
+async function toggleKey(id, disabled){
+  try{ await api("keys.toggle",{id, disabled}); toast(disabled?"已停用":"已啟用"); loadAll(); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
+async function removeKey(id){
+  if(!confirm("確定刪除這把 key？")) return;
+  try{ await api("keys.remove",{id}); toast("已刪除"); loadAll(); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
+let LAST_USERS = [];
+function renderUsers(list){
+  if (list !== undefined) LAST_USERS = list || [];
+  const q = ($("userFilter") && $("userFilter").value.trim().toLowerCase()) || "";
+  const shown = q ? LAST_USERS.filter(u=>(u.name||"").toLowerCase().includes(q)) : LAST_USERS;
+  $("userRows").innerHTML = shown.map(u=>{
+    const sub = (u.monthlyQuota||0) > 0 ? `<br><span class="chip">📅 ${esc(u.plan||"free")} /月${esc(u.monthlyQuota)}</span>` : "";
+    return `<tr>
+    <td>${esc(u.name)}${u.disabled?' <span class="chip bad">停用</span>':""}</td>
+    <td><span class="chip ${u.role==="admin"?"warn":""}">${esc(u.role)}</span></td>
+    <td>${u.credits===-1?'<span class="chip ok">無限</span>':esc(u.credits)}${sub}</td>
+    <td class="code">${esc(u.token)}</td>
+    <td><div class="rowbtns">
+      <button onclick="addCredits('${esc(u.token)}')">＋充值</button>
+      <button onclick="setSub('${esc(u.token)}','${esc(u.name)}')">${(u.monthlyQuota||0)>0?"改訂閱":"訂閱"}</button>
+      <button onclick="toggleUser('${esc(u.token)}',${u.disabled?"false":"true"})">${u.disabled?"啟用":"停用"}</button>
+      <button onclick="resetPw('${esc(u.token)}','${esc(u.name)}')">密碼</button>
+      <button class="danger" onclick="deleteUser('${esc(u.token)}','${esc(u.name)}')">刪除</button>
+    </div></td></tr>`;}).join("") || '<tr><td colspan="5" class="muted">尚無帳號</td></tr>';
+}
+async function setSub(tok, name){
+  const plan = prompt(`「${name}」的方案名（free=無訂閱）：`, "pro");
+  if(plan===null) return;
+  const q = prompt("每月自動補點數（0=無月補）：", "30000");
+  if(q===null) return;
+  try{ await api("users.set",{token:tok, fields:{plan:plan.trim()||"free", monthlyQuota:Number(q)}});
+    toast("訂閱已設定"); loadAll();
+  }catch(e){ toast("失敗："+e.message, true); }
+}
+async function addUser(){
+  const name=$("newUserName").value.trim(); if(!name) return toast("請填名稱",true);
+  try{
+    const j = await api("users.create",{name, role:$("newUserRole").value, credits:Number($("newUserCredits").value)});
+    $("newUserName").value="";
+    prompt("✅ 帳號已建（token 只顯示這一次，複製給用戶）：", j.token);
+    loadAll();
+  }catch(e){ toast("建帳號失敗："+e.message, true); }
+}
+async function addCredits(tok){
+  const v = prompt("充值點數（可負數扣減）：", "10000");
+  if(v===null) return;
+  try{ const j = await api("users.add-credits",{token:tok, delta:Number(v)});
+    toast("目前點數："+j.credits); loadAll();
+  }catch(e){ toast("失敗："+e.message, true); }
+}
+async function toggleUser(tok, disabled){
+  try{ await api("users.set",{token:tok, fields:{disabled}}); toast(disabled?"已停用":"已啟用"); loadAll(); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
+async function deleteUser(tok, name){
+  if(!confirm(`確定刪除帳號「${name}」？此動作不可復原！`)) return;
+  try{ await api("users.delete",{token:tok}); toast("已刪除"); loadAll(); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
+async function resetPw(tok, name){
+  const pw = prompt(`重設「${name}」的密碼（最少 6 字，舊 session 會失效）：`);
+  if(!pw) return;
+  try{ await api("users.set-password",{token:tok, password:pw}); toast("密碼已重設"); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
+async function loadLogs(){
+  try{
+    const j = await api("logs");
+    $("logRows").innerHTML = (j.logs||[]).map(e=>{
+      const t = new Date(e.t||Date.now());
+      const hh = [t.getHours(),t.getMinutes(),t.getSeconds()].map(n=>String(n).padStart(2,"0")).join(":");
+      return `<tr><td>${hh}</td><td>${esc(e.user||"")}</td><td class="code">${esc(String(e.model||"").split("/").pop())}</td><td>${esc(e.tokens||0)}</td></tr>`;
+    }).join("") || '<tr><td colspan="4" class="muted">尚無請求</td></tr>';
+  }catch(e){ $("logRows").innerHTML = `<tr><td colspan="4" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
+}
+async function playRun(){
+  const text = $("playText").value.trim();
+  if(!text) return toast("請輸入一句話", true);
+  $("playOut").textContent = "思考中…";
+  try{
+    const r = await fetch("/v1/chat/completions", { method:"POST",
+      headers:{"Content-Type":"application/json", Authorization:"Bearer "+token()},
+      body: JSON.stringify({ model:$("playModel").value,
+        messages:[{role:"user", content:text}], max_tokens:300 }) });
+    const j = await r.json();
+    if(!r.ok) throw new Error((j.error&&j.error.message)||r.status);
+    $("playOut").textContent = (j.choices&&j.choices[0]&&j.choices[0].message.content) || JSON.stringify(j).slice(0,500);
+    loadLogs();
+  }catch(e){ $("playOut").textContent = "失敗："+e.message; }
+}
+async function loadChannels(){
+  try{
+    const j = await api("channels");
+    $("chRows").innerHTML = (j.channels||[]).map(c=>`<tr>
+      <td><b>${esc(c.name)}</b><br><span class="muted code">${esc(c.id)}</span></td>
+      <td>${c.keys}</td><td>${esc(c.weight)}</td>
+      <td class="muted">${(c.models||[]).length?esc(c.models.join("、")):"全部"}</td>
+      <td>${c.disabled?'<span class="chip bad">停用</span>':'<span class="chip ok">啟用</span>'}</td>
+      <td>${c.zdr?'<span class="chip ok">🔒ZDR</span>':'<span class="chip">一般</span>'}</td>
+      <td><div class="rowbtns">
+        <button onclick="setChKeys('${esc(c.id)}')">換keys</button>
+        <button onclick="setChWeight('${esc(c.id)}',${esc(c.weight)})">權重</button>
+        <button onclick="testChannel('${esc(c.id)}')">測試</button>
+        <button onclick="toggleZdr('${esc(c.id)}',${c.zdr?"false":"true"})">${c.zdr?"關ZDR":"開ZDR"}</button>
+        <button onclick="toggleChannel('${esc(c.id)}',${c.disabled?"false":"true"})">${c.disabled?"啟用":"停用"}</button>
+        <button class="danger" onclick="deleteChannel('${esc(c.id)}')">刪除</button>
+      </div></td></tr>`).join("") || '<tr><td colspan="7" class="muted">尚無渠道（走全池模式）</td></tr>';
+  }catch(e){ $("chRows").innerHTML = `<tr><td colspan="7" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
+}
+async function toggleZdr(id, zdr){
+  try{ await api("channels.set",{id, fields:{zdr}}); toast(zdr?"已開啟 ZDR 🔒":"已關閉 ZDR"); loadChannels(); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
+function parseModels(s){ return String(s||"").split(/[,，\s;；]+/).map(x=>x.trim()).filter(Boolean); }
+async function addChannel(){
+  const name=$("newChName").value.trim(); if(!name) return toast("請填名稱",true);
+  try{ await api("channels.create",{name, weight:Number($("newChWeight").value)||1, models:parseModels($("newChModels").value)});
+    $("newChName").value=""; toast("已建渠道"); loadChannels();
+  }catch(e){ toast("失敗："+e.message, true); }
+}
+async function setChKeys(id){
+  const v = prompt("整組換 keys（多把用逗號或換行分隔，gsk_ 開頭）：");
+  if(v===null) return;
+  try{ const j = await api("channels.set-keys",{id, keys:v}); toast(`已寫入 ${j.count} 把`); loadChannels(); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
+async function setChWeight(id, cur){
+  const v = prompt("權重（1~100，越大越常用）：", String(cur||1));
+  if(v===null) return;
+  try{ await api("channels.set",{id, fields:{weight:Number(v)}}); loadChannels(); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
+async function toggleChannel(id, disabled){
+  try{ await api("channels.set",{id, fields:{disabled}}); loadChannels(); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
+async function deleteChannel(id){
+  if(!confirm("確定刪除這個渠道？")) return;
+  try{ await api("channels.delete",{id}); loadChannels(); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
+async function testChannel(id){
+  toast("測試中…");
+  try{
+    const j = await api("channels.test",{id});
+    toast(j.ok ? `✅ 通（${(j.models||[]).length} 個模型）` : `❌ 不通：${j.status||""} ${j.error||""}`, !j.ok);
+  }catch(e){ toast("失敗："+e.message, true); }
+}
+async function loadInvites(){
+  try{
+    const j = await api("invites");
+    $("invRows").innerHTML = (j.invites||[]).map(v=>`<tr>
+      <td class="code">${esc(v.code)}</td><td>${esc(v.credits)}</td>
+      <td>${v.used||0}/${v.maxUses}</td>
+      <td>${v.disabled?'<span class="chip bad">停用</span>':'<span class="chip ok">啟用</span>'}</td>
+      <td><div class="rowbtns">
+        <button onclick="toggleInvite('${esc(v.code)}',${v.disabled?"false":"true"})">${v.disabled?"啟用":"停用"}</button>
+        <button class="danger" onclick="deleteInvite('${esc(v.code)}')">刪除</button>
+      </div></td></tr>`).join("") || '<tr><td colspan="5" class="muted">尚無邀請碼</td></tr>';
+  }catch(e){ $("invRows").innerHTML = `<tr><td colspan="5" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
+}
+async function createInvite(){
+  const credits = Number($("invCredits").value), maxUses = Number($("invMaxUses").value);
+  if(!credits || credits <= 0) return toast("點數需為正數", true);
+  try{
+    const j = await api("invites.create",{credits, maxUses: maxUses || 1});
+    prompt(`✅ 邀請碼已建（+${j.credits} 點，可用 ${j.maxUses} 次，發給用戶）：`, j.code);
+    loadInvites();
+  }catch(e){ toast("失敗："+e.message, true); }
+}
+async function toggleInvite(code, disabled){
+  try{ await api("invites.toggle",{code, disabled}); loadInvites(); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
+async function deleteInvite(code){
+  if(!confirm(`確定刪除邀請碼 ${code}？`)) return;
+  try{ await api("invites.delete",{code}); loadInvites(); }
+  catch(e){ toast("失敗："+e.message, true); }
 }
 
-(async function boot(){
+/* ── 活動 / 方案（預留）── */
+let EVT_ON = false;
+async function loadPromo(){
   try{
-    const me = await (await fetch("/api/auth?action=me",{headers:{Authorization:"Bearer "+ses}})).json();
-    if(!me.ok){ localStorage.removeItem("gr_session"); return location.href="/login"; }
-    if(me.kind==="admin"||(me.user&&me.user.role==="admin")) return location.href="/admin";
-    const u = me.user;
-    ME = u;
-    $("stTokens").textContent = u.usedTokens||0;
-    renderKv(u);
-    setCredits(u.credits);
-    if(u.token) fillSnippets(u.token);
-    CHECKIN = Array.isArray(u.checkinLog) ? u.checkinLog : [];
+    const [e, p] = await Promise.all([api("event"), api("plans")]);
+    const ev = e.event || {};
+    $("evtLabel").value = ev.label || "";
+    $("evtMult").value = ev.mult || 1;
+    $("evtUntil").value = ev.until || "";
+    updateEvtBtn(!!ev.enabled, !!e.active);
+    const plans = p.plans || {};
+    $("planRows").innerHTML = Object.entries(plans).map(([id, x])=>`<tr>
+      <td><span class="chip ${id==="free"?"":"warn"}">${esc(id)}</span> <span class="muted">${esc(x.label||id)}</span></td>
+      <td><input type="number" data-plan="${esc(id)}" data-f="monthlyQuota" value="${esc(x.monthlyQuota||0)}" min="0" step="1000" style="max-width:170px"></td>
+      <td><input type="number" data-plan="${esc(id)}" data-f="rewardMult" value="${esc(x.rewardMult||1)}" min="1" max="100" step="0.5" style="max-width:110px"></td>
+    </tr>`).join("");
+  }catch(e){ toast("活動/方案載入失敗："+e.message, true); }
+}
+function updateEvtBtn(on, active){
+  EVT_ON = !!on;
+  const b = $("evtToggle");
+  b.textContent = on ? "🟢 活動中" : "⚪ 未啟用";
+  b.classList.toggle("danger", !!on);
+  const until = $("evtUntil").value;
+  $("evtState").textContent = active
+    ? `狀態：進行中${until ? `（至 ${until}）` : "（永久）"} · 簽到 / 推薦獎勵已乘上倍率`
+    : "狀態：未啟用（倍率不生效）";
+}
+async function toggleEvent(){ await saveEvent(!EVT_ON); }
+async function saveEvent(forceEnabled){
+  const enabled = typeof forceEnabled === "boolean" ? forceEnabled : EVT_ON;
+  try{
+    const j = await api("event.set", { event: { enabled,
+      label: $("evtLabel").value, mult: Number($("evtMult").value)||1, until: $("evtUntil").value }});
+    updateEvtBtn(!!(j.event&&j.event.enabled), !!j.active);
+    toast(j.active ? "🎉 活動已啟用" : "活動已儲存（未啟用）");
+  }catch(e){ toast("失敗："+e.message, true); }
+}
+async function savePlans(){
+  const plans = {};
+  document.querySelectorAll("[data-plan]").forEach(el=>{
+    plans[el.dataset.plan] = plans[el.dataset.plan] || {};
+    plans[el.dataset.plan][el.dataset.f] = Number(el.value);
+  });
+  try{ await api("plans.set", { plans }); toast("方案已儲存"); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
 
-    const uj = await (await fetch("/api/auth?action=usage&days=7",{headers:{Authorization:"Bearer "+ses}})).json();
-    const rows = uj.usage||[];
+/* ── KEY 壓力表（僅管理員）── */
+async function loadKeyPress(){
+  try{
+    const j = await api("keypress");
+    $("kpDay").textContent = j.day ? `統計日 ${j.day}` : "尚無統計";
+    $("kpLimit").textContent = `每分鐘上限 ${j.limit}（env KEY_RPM_LIMIT）`;
+    $("kpRows").innerHTML = (j.keys||[]).map(k=>{
+      const cls = k.pressure >= 80 ? "bad" : k.pressure >= 50 ? "warn" : "ok";
+      const st = k.rpm === 0 ? "空閒" : k.pressure >= 80 ? "高壓" : k.pressure >= 50 ? "偏高" : "正常";
+      return `<tr>
+        <td class="code">${esc(k.prefix)}</td>
+        <td>${esc(k.source)}</td>
+        <td>${k.reqs}</td>
+        <td>${k.tokens}</td>
+        <td>${k.errs ? `<span class="chip bad">${k.errs}</span>` : "0"}</td>
+        <td><div style="display:flex;gap:8px;align-items:center;min-width:230px">
+          <div class="bar" style="flex:1;min-width:110px;margin:0"><i style="width:${k.pressure}%"></i></div>
+          <span class="chip ${cls}">${k.rpm}/分 · ${k.pressure}% · ${st}</span>
+        </div></td>
+      </tr>`;
+    }).join("") || '<tr><td colspan="6" class="muted">尚無統計（今天還沒有人打過 API）</td></tr>';
+  }catch(e){ $("kpRows").innerHTML = `<tr><td colspan="6" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
+}
+
+/* ── 用量明細：表 + 圖 + 7 天卡（兩種角色同一條路）── */
+async function loadUsage(){
+  const c4 = $("useCol4"); if (c4 && IS_ADMIN) c4.textContent = "活躍 / 模型";
+  try{
+    const r = await fetch("/api/auth?action=usage&days=7", { headers:{Authorization:"Bearer "+token()} });
+    const j = await r.json();
+    if(!j.ok) throw new Error((j.error&&j.error.message)||"載入失敗");
+    const rows = j.usage||[];
     let tot=0, req=0;
     $("useRows").innerHTML = rows.map(d=>{
       tot += d.tokens||0; req += d.reqs||0;
-      const models = Object.entries(d.models||{}).map(([m,n])=>`${esc(m.split("/").pop())}×${n}`).join("、") || "--";
-      return `<tr><td>${esc(d.day)}</td><td>${esc(d.tokens||0)}</td><td>${esc(d.reqs||0)}</td><td>${models}</td></tr>`;
-    }).join("");
+      const models = Object.entries(d.models||{}).map(([m,n])=>`${esc(String(m).split("/").pop())}×${n}`).join("、") || "--";
+      const act = d.users ? `${esc(d.users)} 帳號 · ` : "";
+      return `<tr><td>${esc(d.day||"")}</td><td>${d.tokens||0}</td><td>${d.reqs||0}</td><td>${act}${models}</td></tr>`;
+    }).join("") || '<tr><td colspan="4" class="muted">尚無用量</td></tr>';
     $("useTotal").textContent = `共 ${tot} tokens / ${req} 次`;
-    $("dashTotal").textContent = `共 ${tot} tokens / ${req} 次`;
-    $("st7tok").textContent = tot;
-    $("st7req").textContent = req;
-
-    const max = Math.max(1, ...rows.map(d=>d.tokens||0));
-    $("chart").innerHTML = rows.map(d=>{
-      const h = Math.round((d.tokens||0)/max*100);
-      return `<div class="b" style="height:${Math.max(h,2)}%" title="${esc(d.day)}: ${d.tokens||0} tokens"></div>`;
+    const t7 = $("st7tok"), q7 = $("st7req");
+    if (t7) t7.textContent = tot;
+    if (q7) q7.textContent = req;
+    // 圖：舊→新（左→右）
+    const days = rows.slice().reverse();
+    const max = Math.max(1, ...days.map(d=>d.tokens||0));
+    $("chart").innerHTML = days.map(d=>{
+      const h = Math.max(3, Math.round((d.tokens||0)/max*110));
+      return `<div class="b" style="height:${h}px" title="${esc(d.day)}: ${d.tokens||0} tokens / ${d.reqs||0} 次"></div>`;
     }).join("");
-    $("chartLbl").innerHTML = rows.map(d=>`<span>${esc(String(d.day).slice(5))}</span>`).join("");
-  }catch(e){
-    $("kvMe").innerHTML = `<div>錯誤</div><div>${esc(e.message)}</div>`;
+    $("chartLbl").innerHTML = days.map(d=>`<span>${esc((d.day||"").slice(5))}</span>`).join("");
+  }catch(e){ $("useRows").innerHTML = `<tr><td colspan="4" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
+}
+
+/* ── 啟動：同一頁，角色決定分頁 ── */
+(async function boot(){
+  const t = token();
+  if(!t) return location.href = "/login";           // 未登入強制去登入頁
+  if(localStorage.getItem("gr_admin_token")) $("adminToken").value = t;
+  let j = null;
+  try{ j = await (await fetch("/api/auth?action=me",{headers:{Authorization:"Bearer "+t}})).json(); }
+  catch(e){ return location.href = "/login"; }
+  if(!j || !j.ok){
+    localStorage.removeItem("gr_session"); localStorage.removeItem("gr_admin_token");
+    return location.href = "/login";
   }
-  renderCal();   // 用真實 checkinLog 重畫（buildPages 前面已跑過）
+  IS_ADMIN = j.kind === "admin" || !!(j.user && j.user.role === "admin");
+  if(IS_ADMIN){
+    document.querySelectorAll(".admOnly").forEach(e => e.style.display = "");   // 解除預設隱藏
+  } else {
+    ACTIVE = new Set(USER_PAGES);                    // 只留 4 個使用者分頁（hash 直打也進不去）
+    route();
+  }
+  if(j.user){
+    ME = j.user;
+    $("stTokens").textContent = j.user.usedTokens || 0;
+    renderKv(j.user);
+    setCredits(j.user.credits);
+    if(j.user.token) fillSnippets(j.user.token); else $("apiKey").textContent = "無個人金鑰";
+    CHECKIN = Array.isArray(j.user.checkinLog) ? j.user.checkinLog : [];
+    // 活動橫幅
+    if(j.event && j.event.enabled){
+      const b = $("evtBanner");
+      if(b){ b.style.display = "";
+        b.textContent = `🎉 活動「${j.event.label || "限時"}」獎勵 ×${j.event.mult || 1}${j.event.until ? ` · 至 ${j.event.until}` : ""}`; }
+    }
+    // 我的推薦碼
+    if(j.user.myCode){
+      $("refCode").textContent = j.user.myCode;
+      $("refLink").textContent = `${location.origin}/login?ref=${j.user.myCode}`;
+      $("refCount").textContent = `${j.user.refCount || 0} 人`;
+      if(j.user.referredBy) $("refFrom").textContent = j.user.referredBy;
+    }
+    // 專屬連結帶來的 ref → 預填兌換框
+    try{
+      const gr = localStorage.getItem("gr_ref");
+      if(gr){ $("invCode").value = gr; localStorage.removeItem("gr_ref"); }
+    }catch{}
+  } else {
+    // ADMIN_TOKEN / legacy 後門：無帳號資料
+    $("hdrCredits").textContent = j.kind === "admin" ? "🔐 ADMIN_TOKEN" : (j.kind === "legacy" ? "🔗 共用入口" : "…");
+    $("kvMe").innerHTML = `<div>身分</div><div>${j.kind === "admin" ? "ADMIN_TOKEN 後門登入（無帳號資料、不扣點）" : "共用入口（不扣點）"}</div>`;
+    $("apiKey").textContent = "此登入無個人金鑰";
+    $("stTokens").textContent = "–";
+    $("stCredits").textContent = "–";
+  }
+  renderCal();
+  if(IS_ADMIN){ loadAll(); loadChannels(); loadLogs(); loadPromo(); loadKeyPress(); }   // loadAll 內含 usage/invites/pricing/keys/users
+  else { loadUsage(); }
 })();
 </script>
 </body>

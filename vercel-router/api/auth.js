@@ -38,10 +38,33 @@ function parseBody(req) {
   });
 }
 
+/** 舊資料修復：只有 lastCheckin 沒有 log 的，補進日曆 */
+function healCheckinLog(u) {
+  const log = Array.isArray(u.checkinLog) ? u.checkinLog.slice() : [];
+  if (u.lastCheckin && !log.includes(u.lastCheckin)) log.push(u.lastCheckin);
+  log.sort();
+  return log.slice(-90);
+}
+
+/** 個人推薦碼：U-XXXX-XXXX（與管理員邀請碼 XXXX-XXXX 格式不衝突） */
+function newMyCode(users) {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const crypto = require("crypto");
+  for (;;) {
+    const b = crypto.randomBytes(8);
+    let s = "";
+    for (const x of b) s += chars[x % chars.length];
+    const code = `U-${s.slice(0, 4)}-${s.slice(4, 8)}`;
+    if (!Object.values(users).some((u) => u.myCode === code)) return code;
+  }
+}
+
 function cleanUser(token, u) {
   return { token: token || "", name: u.name, role: u.role, credits: u.credits,
     usedTokens: u.usedTokens || 0, disabled: !!u.disabled, createdAt: u.createdAt || "",
-    checkinLog: Array.isArray(u.checkinLog) ? u.checkinLog : [] };
+    checkinLog: healCheckinLog(u),
+    myCode: u.myCode || "", refCount: u.refCount || 0, referredBy: u.referredBy || "",
+    plan: u.plan || "free" };
 }
 
 module.exports = async (req, res) => {
@@ -72,7 +95,8 @@ module.exports = async (req, res) => {
       const session = randomToken("ses");
       users[token] = { name, role: "user", credits: 0,
         passwordHash: hashPassword(password, salt), salt,
-        session, usedTokens: 0, createdAt: new Date().toISOString(), disabled: false };
+        session, usedTokens: 0, createdAt: new Date().toISOString(), disabled: false,
+        myCode: newMyCode(users) };
       await store.setUsers(users);
       return sendJson(res, 200, { ok: true, session, user: cleanUser(token, users[token]),
         token, note: "API token 請妥善保存（只顯示這一次）；初始 0 點，請聯繫管理員充值" });
@@ -131,13 +155,17 @@ module.exports = async (req, res) => {
         return sendJson(res, 200, { ok: true, checked: false, credits: u.credits,
           message: "今天已簽到過，明天再來" });
       }
-      const award = Math.max(1, Number(process.env.CHECKIN_CREDITS) || 100);
+      // 獎勵倍率 = 活動 × 方案（預留的活動/方案結構，預設都是 1）
+      let mult = 1;
+      try { const ev = store.activeEvent(await store.getEvent()); if (ev) mult *= Number(ev.mult) || 1; } catch {}
+      try { const plans = await store.getPlans(); mult *= Number((plans[u.plan || "free"] || {}).rewardMult) || 1; } catch {}
+      const award = Math.max(1, Number(process.env.CHECKIN_CREDITS) || 100) * mult;
       u.lastCheckin = today;
-      u.checkinLog = [...(Array.isArray(u.checkinLog) ? u.checkinLog : []), today].slice(-90);
+      u.checkinLog = [...healCheckinLog(u), today].slice(-90);
       if (u.credits !== -1) u.credits = (Number(u.credits) || 0) + award;
       await store.setUsers(users);
-      return sendJson(res, 200, { ok: true, checked: true, award, credits: u.credits,
-        message: `簽到成功 +${award} 點` });
+      return sendJson(res, 200, { ok: true, checked: true, award, credits: u.credits, mult,
+        message: `簽到成功 +${award} 點${mult > 1 ? `（×${mult} 加成）` : ""}` });
     }
 
     // ── 我的帳號 ──
@@ -146,7 +174,23 @@ module.exports = async (req, res) => {
       if (a.kind === "admin" && !a.user) {
         return sendJson(res, 200, { ok: true, kind: "admin", name: "ADMIN_TOKEN", note: "最高權限後門" });
       }
-      return sendJson(res, 200, { ok: true, kind: a.kind, user: cleanUser(a.user.token, a.user) });
+      // 活動資訊（給前端橫幅；無活動回 null）
+      let event = null;
+      try { event = store.activeEvent(await store.getEvent()); } catch { event = null; }
+      // 舊帳號補發個人推薦碼
+      let userObj = a.user;
+      try {
+        if (!userObj.myCode) {
+          const users = (await store.getUsers()) || {};
+          const u = users[userObj.token];
+          if (u && !u.myCode) {
+            u.myCode = newMyCode(users);
+            await store.setUsers(users);
+            userObj = { ...userObj, myCode: u.myCode };
+          }
+        }
+      } catch { /* 補發失敗不擋路 */ }
+      return sendJson(res, 200, { ok: true, kind: a.kind, user: cleanUser(userObj.token, userObj), event });
     }
 
     // ── 用量 ──
@@ -187,15 +231,35 @@ module.exports = async (req, res) => {
       }
       const code = String(body.code || "").trim().toUpperCase();
       if (!code) return sendJson(res, 400, { ok: false, error: { message: "請輸入邀請碼" } });
+      const users = (await store.getUsers()) || {};
+      const u = users[a.user.token];
+      if (!u || u.disabled) return sendJson(res, 403, { ok: false, error: { message: "帳號已停用" } });
+
+      // ① 個人推薦碼（U-XXXX-XXXX）：雙向獎勵，每人限用一次推薦碼
+      const refEntry = Object.entries(users).find(([tk, x]) => x.myCode === code && tk !== a.user.token);
+      if (refEntry) {
+        const refUser = refEntry[1];
+        if (u.referredBy) {
+          return sendJson(res, 400, { ok: false, error: { message: "已經用過推薦碼了（每人限一次）" } });
+        }
+        let gain = Math.max(1, Number(process.env.REFERRAL_CREDITS) || 1000);
+        try { const ev = store.activeEvent(await store.getEvent()); if (ev) gain *= Number(ev.mult) || 1; } catch {}
+        if (u.credits !== -1) u.credits = (Number(u.credits) || 0) + gain;
+        if (refUser.credits !== -1) refUser.credits = (Number(refUser.credits) || 0) + gain;
+        u.referredBy = refUser.name || "好友";
+        refUser.refCount = (Number(refUser.refCount) || 0) + 1;
+        await store.setUsers(users);
+        return sendJson(res, 200, { ok: true, added: gain, credits: u.credits,
+          message: `推薦成功：你 +${gain} 點，「${refUser.name}」也 +${gain} 點` });
+      }
+
+      // ② 管理員建立的邀請碼
       const inv = await store.getInvites();
       const v = inv[code];
       if (!v || v.disabled) return sendJson(res, 404, { ok: false, error: { message: "邀請碼無效" } });
       if ((v.used || 0) >= v.maxUses) {
         return sendJson(res, 400, { ok: false, error: { message: "邀請碼已用完" } });
       }
-      const users = (await store.getUsers()) || {};
-      const u = users[a.user.token];
-      if (!u || u.disabled) return sendJson(res, 403, { ok: false, error: { message: "帳號已停用" } });
       v.used = (v.used || 0) + 1;
       if (u.credits !== -1) u.credits = (Number(u.credits) || 0) + v.credits;
       await store.setInvites(inv);
