@@ -810,7 +810,6 @@ async function playRun(){
   const text = $("playText").value.trim();
   if(!text) return toast("請輸入一句話", true);
   $("playText").value = "";                       // 送出即清空輸入框
-  const before = ME ? Number(ME.credits) : null;
   const box = $("playOut");
   if(!box.dataset.started){ box.innerHTML = ""; box.dataset.started = "1"; }
   addMsg("user", esc(text));
@@ -818,7 +817,7 @@ async function playRun(){
   const bub = addMsg("ai", '<span class="cursor">▍</span>');
   const btn = $("playBtn");
   if(btn) btn.disabled = true;
-  let ans = "", why = "", usage = null;
+  let ans = "", why = "", usage = null, xCost = null, xLeft = null;
   const paint = (cursor) => {
     bub.innerHTML = (why ? `<div class="reason">🤔 ${esc(why)}</div>` : "") + md(ans) + (cursor ? '<span class="cursor">▍</span>' : "");
     box.scrollTop = box.scrollHeight;
@@ -832,7 +831,6 @@ async function playRun(){
       const j = await r.json().catch(()=>({}));
       throw new Error((j.error&&j.error.message)||("HTTP "+r.status));
     }
-    const leftH = r.headers.get("x-credits-left");   // 串流：扣點 header 在 body 前就到了
     const reader = r.body.getReader();
     const dec = new TextDecoder();
     let buf = "", over = false;
@@ -849,7 +847,9 @@ async function playRun(){
         if(p === "[DONE]") continue;              // 不提早收尾：中轉補的 usage chunk 在 [DONE] 之後
         try{
           const j = JSON.parse(p);
-          if(j.usage) usage = j.usage;            // 後面覆蓋前面 → 最終取中轉補的估算(=扣點依據)
+          if(j.usage) usage = j.usage;            // 後面覆蓋 → 取中轉最終結算值(實測優先)
+          if(j.x_cost !== undefined) xCost = j.x_cost;
+          if(j.x_left !== undefined && j.x_left !== null) xLeft = j.x_left;
           const d = (j.choices && j.choices[0] && j.choices[0].delta) || {};
           why += d.reasoning_content || d.reasoning || "";
           ans += d.content || "";
@@ -859,14 +859,12 @@ async function playRun(){
     }
     // 收尾：扣點明細 + token 用量
     const parts = [];
-    if(leftH !== null && before !== null && before !== -1){
-      const left = Number(leftH);
-      const spent = Math.max(0, before - left);
-      parts.push(`💰 本次扣 <b>${fmtPts(spent)}</b> 點（1點＝US$1，照官方價算）· 餘額 <b>${fmtPts(left)}</b> 點`);
-      setCredits(left);
+    if(xCost !== null && xLeft !== null){
+      parts.push(`💰 本次扣 <b>${fmtPts(xCost)}</b> 點（1點＝US$1，照官方價算）· 餘額 <b>${fmtPts(xLeft)}</b> 點`);
+      setCredits(xLeft);
     }
     if(usage && usage.total_tokens){
-      parts.push(`🔤 <b>${usage.total_tokens}</b> tokens（in ${usage.prompt_tokens ?? "?"} / out ${usage.completion_tokens ?? "?"}${usage.estimated ? " · 約估＝扣點依據" : ""}）`);
+      parts.push(`🔤 <b>${usage.total_tokens}</b> tokens（in ${usage.prompt_tokens ?? "?"} / out ${usage.completion_tokens ?? "?"} · ${usage.estimated ? "約估＝扣點依據" : "實測＝扣點依據"}）`);
     }
     const tail = parts.length ? `<div class="costline">${parts.join(" · ")}</div>` : "";
     bub.innerHTML = (why ? `<div class="reason">🤔 ${esc(why)}</div>` : "") + md(ans) + tail;

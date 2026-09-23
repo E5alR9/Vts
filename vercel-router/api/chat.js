@@ -206,20 +206,50 @@ module.exports = async (req, res) => {
         // （扣點必須在 res.end() 之前完成，否則 x-credits-left 發不出去）
 
         if (wantStream) {
-          // 串流沒有 usage → 估 input/output 分開計官方價，先扣（header 要在 end 前設）
-          const est = estimateTokens(body);
-          const total = est.pt + est.ct;
+          const est = estimateTokens(body);   // 基底估算（上游沒給 usage 才當 fallback）
+          res.statusCode = 200;
+          res.setHeader("Content-Type", upstream.headers.get("content-type") || "text/event-stream");
+          res.setHeader("Cache-Control", "no-cache");
+          res.setHeader("Connection", "keep-alive");
+          res.flushHeaders?.();
+          let realUsage = null, hold = "";
+          try {
+            for await (const chunk of upstream.body) {
+              // 邊轉邊掃 SSE：抓上游真實 usage（單行 data: 事件）
+              hold += Buffer.from(chunk).toString("utf8");
+              const evts = hold.split(/\r?\n\r?\n/);
+              hold = evts.pop();
+              for (const evt of evts) {
+                const line = evt.split(/\r?\n/).find((l) => l.startsWith("data:"));
+                if (!line) continue;
+                const payload = line.slice(5).trim();
+                if (payload === "[DONE]") continue;
+                try {
+                  const jj = JSON.parse(payload);
+                  if (jj.usage && Number.isFinite(jj.usage.prompt_tokens)) realUsage = jj.usage;
+                } catch {}
+              }
+              res.write(chunk);
+            }
+          } catch {
+            // 上游中斷就直接收尾，客戶端會看到不完整的 SSE
+          }
+          // 流結束 → 用真實 usage 結算（上游有給就實測，否則才用估算）
+          const u2 = (realUsage && Number.isFinite(realUsage.completion_tokens))
+            ? { pt: realUsage.prompt_tokens, ct: realUsage.completion_tokens } : est;
+          const total = u2.pt + u2.ct;
+          const cost = store.costFor(model, u2.pt, u2.ct, await store.getPricing());
+          let billedLeft = null;
           if (caller.kind === "user" && caller.user.credits !== -1) {
             try {
               const users = (await store.getUsers()) || {};
               const u = users[caller.user.token];
               if (u && u.credits !== -1) {
-                const cost = store.costFor(model, est.pt, est.ct, await store.getPricing());
                 u.credits = Math.max(0, (Number(u.credits) || 0) - cost);
                 u.usedTokens = (Number(u.usedTokens) || 0) + total;
                 if (caller.sub) { const kk = (u.keys || []).find((x) => x.id === caller.sub.id); if (kk) kk.lastUsed = Date.now(); }
                 await store.setUsers(users);
-                res.setHeader("x-credits-left", String(u.credits));
+                billedLeft = u.credits;
                 await store.recordUsage(caller.user.token, model, total, cost);
                 await store.logRequest({ user: caller.user.name || caller.user.token.slice(0, 12),
                   key: caller.sub ? caller.sub.name : undefined,
@@ -227,23 +257,16 @@ module.exports = async (req, res) => {
                 await store.logUserReq(caller.user.token, { model, tokens: total, cost,
                   key: caller.sub ? caller.sub.name : "" });
               }
-            } catch { /* 忽略 */ }
+            } catch { /* 扣點失敗不擋回應 */ }
           }
           try { await store.recordKeyStat(gkey, { tokens: total }); } catch {}
-          res.statusCode = 200;
-          res.setHeader("Content-Type", upstream.headers.get("content-type") || "text/event-stream");
-          res.setHeader("Cache-Control", "no-cache");
-          res.setHeader("Connection", "keep-alive");
-          res.flushHeaders?.();
+          // 最終 chunk：最終 usage +（有扣點才帶）扣點/餘額 → 前端顯示
           try {
-            for await (const chunk of upstream.body) res.write(Buffer.from(chunk));
-          } catch {
-            // 上游中斷就直接收尾，客戶端會看到不完整的 SSE
-          }
-          // 補一發 usage chunk：與扣點同一套估算（串流上游未必給 usage），讓前端顯示 token 用量
-          try {
-            res.write(`data: ${JSON.stringify({ choices: [], usage: {
-              prompt_tokens: est.pt, completion_tokens: est.ct, total_tokens: total, estimated: true } })}\n\n`);
+            const inject = { choices: [], usage: {
+              prompt_tokens: u2.pt, completion_tokens: u2.ct, total_tokens: total,
+              estimated: !realUsage } };
+            if (billedLeft !== null) { inject.x_cost = cost; inject.x_left = billedLeft; }
+            res.write(`data: ${JSON.stringify(inject)}\n\n`);
             res.write("data: [DONE]\n\n");
           } catch { /* 客戶端已斷線就跳過 */ }
           res.end();
