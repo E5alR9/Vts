@@ -35,6 +35,14 @@ pre{background:#0b0f14;border:1px solid var(--line);border-radius:8px;padding:10
   <section id="secMe">
     <h2>👤 帳號</h2>
     <div class="kv" id="kvMe"><div>狀態</div><div>載入中…</div></div>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button class="cp" onclick="checkin()">📅 每日簽到領點數</button>
+    </div>
+    <h2 style="margin-top:14px">🎟️ 兌換邀請碼</h2>
+    <div style="display:flex;gap:8px">
+      <input type="text" id="invCode" placeholder="例如：X7K2-9PQ4" style="flex:1;background:#0b0f14;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:7px 9px">
+      <button class="cp" onclick="redeem()">兌換</button>
+    </div>
     <h2 style="margin-top:14px">🔑 API 用法</h2>
     <div class="muted">OpenAI 相容端點（把 token 當 api_key）：</div>
     <pre>from openai import OpenAI
@@ -58,6 +66,26 @@ function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;",
 function logout(){ localStorage.removeItem("gr_session");
   fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+ses},
     body:JSON.stringify({action:"logout"})}).finally(()=>location.href="/login"); }
+async function checkin(){
+  try{
+    const j = await (await fetch("/api/auth",{method:"POST",
+      headers:{"Content-Type":"application/json",Authorization:"Bearer "+ses},
+      body:JSON.stringify({action:"checkin"})})).json();
+    alert(j.message || (j.ok ? "簽到成功" : "失敗"));
+    if(j.ok) location.reload();
+  }catch(e){ alert("失敗："+e.message); }
+}
+async function redeem(){
+  const code = $("invCode").value.trim();
+  if(!code) return alert("請輸入邀請碼");
+  try{
+    const j = await (await fetch("/api/auth",{method:"POST",
+      headers:{"Content-Type":"application/json",Authorization:"Bearer "+ses},
+      body:JSON.stringify({action:"invites.redeem", code})})).json();
+    alert(j.message || (j.ok ? "兌換成功" : "失敗"));
+    if(j.ok) location.reload();
+  }catch(e){ alert("失敗："+e.message); }
+}
 (async function boot(){
   try{
     const me = await (await fetch("/api/auth?action=me",{headers:{Authorization:"Bearer "+ses}})).json();

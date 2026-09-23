@@ -184,6 +184,79 @@ module.exports = async (req, res) => {
       await store.setUsers(users);
       return sendJson(res, 200, { ok: true, user: { name: u.name, role: u.role, credits: u.credits, disabled: !!u.disabled } });
     }
+    if (action === "users.delete") {
+      // 真刪（KV 移除）。admin 帳號至少要留一個。
+      const users = (await store.getUsers()) || {};
+      const u = users[body.token];
+      if (!u) return sendJson(res, 404, { ok: false, error: { message: "找不到帳號" } });
+      if (u.role === "admin" && !u.disabled) {
+        const admins = Object.values(users).filter((x) => x.role === "admin" && !x.disabled);
+        if (admins.length <= 1) {
+          return sendJson(res, 400, { ok: false, error: { message: "不能刪除最後一個啟用中的 admin" } });
+        }
+      }
+      delete users[body.token];
+      await store.setUsers(users);
+      return sendJson(res, 200, { ok: true });
+    }
+    if (action === "users.set-password") {
+      // 幫帳號設/重設密碼（含 admin 自己的 E5alR9）
+      const { hashPassword, newSalt } = require("../lib/auth");
+      const users = (await store.getUsers()) || {};
+      const u = users[body.token];
+      if (!u) return sendJson(res, 404, { ok: false, error: { message: "找不到帳號" } });
+      const pw = String(body.password || "");
+      if (pw.length < 6) return sendJson(res, 400, { ok: false, error: { message: "密碼最少 6 字" } });
+      const salt = newSalt();
+      u.salt = salt;
+      u.passwordHash = hashPassword(pw, salt);
+      u.session = "";                    // 換密碼即登出所有 session
+      await store.setUsers(users);
+      return sendJson(res, 200, { ok: true });
+    }
+
+    // ── 邀請碼（加額度用，不是擋註冊）──
+    if (action === "invites") {
+      const inv = await store.getInvites();
+      const list = Object.entries(inv).map(([code, v]) => ({
+        code, credits: v.credits, maxUses: v.maxUses, used: v.used || 0,
+        disabled: !!v.disabled, createdAt: v.createdAt || "",
+      }));
+      return sendJson(res, 200, { ok: true, invites: list });
+    }
+    if (action === "invites.create") {
+      const credits = Number(body.credits);
+      const maxUses = body.maxUses === undefined ? 1 : Number(body.maxUses);
+      if (!Number.isFinite(credits) || credits <= 0) {
+        return sendJson(res, 400, { ok: false, error: { message: "credits 需為正數" } });
+      }
+      if (!Number.isFinite(maxUses) || maxUses < 1 || maxUses > 10000) {
+        return sendJson(res, 400, { ok: false, error: { message: "maxUses 需為 1~10000" } });
+      }
+      const inv = await store.getInvites();
+      let code = store.newInviteCode();
+      while (inv[code]) code = store.newInviteCode();
+      inv[code] = { credits, maxUses, used: 0,
+        createdBy: (a.user && a.user.name) || "ADMIN_TOKEN",
+        createdAt: new Date().toISOString(), disabled: false };
+      await store.setInvites(inv);
+      return sendJson(res, 200, { ok: true, code, credits, maxUses });
+    }
+    if (action === "invites.toggle") {
+      const inv = await store.getInvites();
+      const v = inv[body.code];
+      if (!v) return sendJson(res, 404, { ok: false, error: { message: "找不到邀請碼" } });
+      v.disabled = body.disabled !== false;
+      await store.setInvites(inv);
+      return sendJson(res, 200, { ok: true, disabled: v.disabled });
+    }
+    if (action === "invites.delete") {
+      const inv = await store.getInvites();
+      if (!inv[body.code]) return sendJson(res, 404, { ok: false, error: { message: "找不到邀請碼" } });
+      delete inv[body.code];
+      await store.setInvites(inv);
+      return sendJson(res, 200, { ok: true });
+    }
 
     return sendJson(res, 400, { ok: false, error: { message: "未知 action: " + action } });
   } catch (e) {

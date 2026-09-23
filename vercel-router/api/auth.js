@@ -110,6 +110,34 @@ module.exports = async (req, res) => {
       return sendJson(res, 200, { ok: true });
     }
 
+    // ── 每日簽到（加額度；每天一次，寫死一天一次防刷）──
+    if (action === "checkin") {
+      if (a.kind === "legacy") {
+        return sendJson(res, 400, { ok: false, error: { message: "共用入口不支援簽到，請用帳號登入" } });
+      }
+      if (a.kind === "admin" && !a.user) {
+        return sendJson(res, 400, { ok: false, error: { message: "ADMIN_TOKEN 不用簽到" } });
+      }
+      const today = (() => {
+        const t = new Date();
+        const p = (n) => String(n).padStart(2, "0");
+        return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}`;
+      })();
+      const users = (await store.getUsers()) || {};
+      const u = users[a.user.token];
+      if (!u || u.disabled) return sendJson(res, 403, { ok: false, error: { message: "帳號已停用" } });
+      if (u.lastCheckin === today) {
+        return sendJson(res, 200, { ok: true, checked: false, credits: u.credits,
+          message: "今天已簽到過，明天再來" });
+      }
+      const award = Math.max(1, Number(process.env.CHECKIN_CREDITS) || 100);
+      u.lastCheckin = today;
+      if (u.credits !== -1) u.credits = (Number(u.credits) || 0) + award;
+      await store.setUsers(users);
+      return sendJson(res, 200, { ok: true, checked: true, award, credits: u.credits,
+        message: `簽到成功 +${award} 點` });
+    }
+
     // ── 我的帳號 ──
     if (action === "me") {
       if (a.kind === "legacy") return sendJson(res, 200, { ok: true, kind: "legacy", note: "共用入口，不扣點" });
@@ -148,6 +176,30 @@ module.exports = async (req, res) => {
       if (!a.user) return sendJson(res, 200, { ok: true, usage: [] });
       const mine = (all || []).map((d) => ({ day: d.day, ...(d.data[a.user.token] ? d.data[a.user.token] : { tokens: 0, reqs: 0, models: {} }) }));
       return sendJson(res, 200, { ok: true, usage: mine });
+    }
+
+    // ── 兌換邀請碼（加額度；需登入 user）──
+    if (action === "invites.redeem") {
+      if (a.kind === "legacy" || (a.kind === "admin" && !a.user)) {
+        return sendJson(res, 400, { ok: false, error: { message: "此身分不需兌換" } });
+      }
+      const code = String(body.code || "").trim().toUpperCase();
+      if (!code) return sendJson(res, 400, { ok: false, error: { message: "請輸入邀請碼" } });
+      const inv = await store.getInvites();
+      const v = inv[code];
+      if (!v || v.disabled) return sendJson(res, 404, { ok: false, error: { message: "邀請碼無效" } });
+      if ((v.used || 0) >= v.maxUses) {
+        return sendJson(res, 400, { ok: false, error: { message: "邀請碼已用完" } });
+      }
+      const users = (await store.getUsers()) || {};
+      const u = users[a.user.token];
+      if (!u || u.disabled) return sendJson(res, 403, { ok: false, error: { message: "帳號已停用" } });
+      v.used = (v.used || 0) + 1;
+      if (u.credits !== -1) u.credits = (Number(u.credits) || 0) + v.credits;
+      await store.setInvites(inv);
+      await store.setUsers(users);
+      return sendJson(res, 200, { ok: true, added: v.credits, credits: u.credits,
+        message: `兌換成功 +${v.credits} 點` });
     }
 
     return sendJson(res, 400, { ok: false, error: { message: "未知 action: " + action } });

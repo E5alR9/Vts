@@ -96,6 +96,16 @@ td.code{font-family:Consolas,monospace;word-break:break-all}
     </div>
     <table><thead><tr><th>名稱</th><th>角色</th><th>點數</th><th>token</th><th>操作</th></tr></thead>
     <tbody id="userRows"><tr><td colspan="5" class="muted">尚未載入</td></tr></tbody></table>
+  <section id="secInvites" style="grid-column:span 12">
+    <h2>🎟️ 邀請碼 <small>用戶兌換即加額度（不是擋註冊）</small></h2>
+    <div class="grid2" style="grid-template-columns:1fr 1fr 1fr auto">
+      <div><label>點數</label><input type="number" id="invCredits" value="1000" min="1"></div>
+      <div><label>可用次數</label><input type="number" id="invMaxUses" value="1" min="1"></div>
+      <div style="display:flex;align-items:flex-end"><button class="primary" onclick="createInvite()">＋ 生成</button></div>
+    </div>
+    <table><thead><tr><th>邀請碼</th><th>點數</th><th>已用/上限</th><th>狀態</th><th>操作</th></tr></thead>
+    <tbody id="invRows"><tr><td colspan="5" class="muted">載入中…</td></tr></tbody></table>
+  </section>
   <section id="secUsage" style="grid-column:span 12">
     <h2>📊 全站用量（近 7 天） <small id="useTotal"></small></h2>
     <table><thead><tr><th>日期</th><th>tokens</th><th>請求</th><th>活躍帳號</th></tr></thead>
@@ -184,6 +194,8 @@ function renderUsers(list){
     <td><div class="rowbtns">
       <button onclick="addCredits('${esc(u.token)}')">＋充值</button>
       <button onclick="toggleUser('${esc(u.token)}',${u.disabled?"false":"true"})">${u.disabled?"啟用":"停用"}</button>
+      <button onclick="resetPw('${esc(u.token)}','${esc(u.name)}')">密碼</button>
+      <button class="danger" onclick="deleteUser('${esc(u.token)}','${esc(u.name)}')">刪除</button>
     </div></td></tr>`).join("") || '<tr><td colspan="5" class="muted">尚無帳號</td></tr>';
 }
 async function addUser(){
@@ -204,6 +216,49 @@ async function addCredits(tok){
 }
 async function toggleUser(tok, disabled){
   try{ await api("users.set",{token:tok, fields:{disabled}}); toast(disabled?"已停用":"已啟用"); loadAll(); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
+async function deleteUser(tok, name){
+  if(!confirm(`確定刪除帳號「${name}」？此動作不可復原！`)) return;
+  try{ await api("users.delete",{token:tok}); toast("已刪除"); loadAll(); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
+async function resetPw(tok, name){
+  const pw = prompt(`重設「${name}」的密碼（最少 6 字，舊 session 會失效）：`);
+  if(!pw) return;
+  try{ await api("users.set-password",{token:tok, password:pw}); toast("密碼已重設"); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
+/* ── 邀請碼（加額度用）── */
+async function loadInvites(){
+  try{
+    const j = await api("invites");
+    $("invRows").innerHTML = (j.invites||[]).map(v=>`<tr>
+      <td class="code">${esc(v.code)}</td><td>${esc(v.credits)}</td>
+      <td>${v.used||0}/${v.maxUses}</td>
+      <td>${v.disabled?'<span class="chip bad">停用</span>':'<span class="chip ok">啟用</span>'}</td>
+      <td><div class="rowbtns">
+        <button onclick="toggleInvite('${esc(v.code)}',${v.disabled?"false":"true"})">${v.disabled?"啟用":"停用"}</button>
+        <button class="danger" onclick="deleteInvite('${esc(v.code)}')">刪除</button>
+      </div></td></tr>`).join("") || '<tr><td colspan="5" class="muted">尚無邀請碼</td></tr>';
+  }catch(e){ $("invRows").innerHTML = `<tr><td colspan="5" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
+}
+async function createInvite(){
+  const credits = Number($("invCredits").value), maxUses = Number($("invMaxUses").value);
+  if(!credits || credits <= 0) return toast("點數需為正數", true);
+  try{
+    const j = await api("invites.create",{credits, maxUses: maxUses || 1});
+    prompt(`✅ 邀請碼已建（+${j.credits} 點，可用 ${j.maxUses} 次，發給用戶）：`, j.code);
+    loadInvites();
+  }catch(e){ toast("失敗："+e.message, true); }
+}
+async function toggleInvite(code, disabled){
+  try{ await api("invites.toggle",{code, disabled}); loadInvites(); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
+async function deleteInvite(code){
+  if(!confirm(`確定刪除邀請碼 ${code}？`)) return;
+  try{ await api("invites.delete",{code}); loadInvites(); }
   catch(e){ toast("失敗："+e.message, true); }
 }
 async function loadUsage(){
@@ -229,7 +284,7 @@ async function loadUsage(){
     .then(r=>r.json()).then(j=>{
       if(!j.ok) return location.href = "/login";
       if(j.kind!=="admin" && !(j.user&&j.user.role==="admin")) return location.href = "/me";
-      loadAll(); loadUsage();
+      loadAll(); loadUsage(); loadInvites();
     }).catch(()=>location.href="/login");
 })();
 </script>

@@ -113,6 +113,32 @@ async function markSeeded() {
   await k.set("gr:meta", JSON.stringify({ seeded: true, at: new Date().toISOString() }));
 }
 
+/** 邀請碼：gr:invites JSON {code: {credits, maxUses, used, createdBy, createdAt, disabled}} */
+async function getInvites() {
+  const k = kv();
+  if (!k) throw new Error("NO_KV");
+  try {
+    const raw = await k.get("gr:invites");
+    return raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+async function setInvites(inv) {
+  const k = kv();
+  if (!k) throw new Error("NO_KV");
+  await k.set("gr:invites", JSON.stringify(inv));
+}
+
+function newInviteCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const b = require("crypto").randomBytes(6);
+  let s = "";
+  for (const x of b) s += chars[x % chars.length];
+  return s.slice(0, 4) + "-" + s.slice(4);
+}
+
 /** 用量記錄：gr:usage:{yyyymmdd} JSON {token: {tokens, reqs, models:{m:n}}} + user.usedTokens 累加 */
 function dayKey(d) {
   const t = d || new Date();
@@ -158,4 +184,4 @@ async function getUsage(days) {
   return out;
 }
 
-module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage };
+module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, getInvites, setInvites, newInviteCode };
