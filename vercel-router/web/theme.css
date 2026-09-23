@@ -176,7 +176,9 @@ main{margin-left:218px;max-width:calc(1360px + 218px);padding-top:22px}
   min-height:3px;cursor:default;transition:filter .12s;opacity:.92}
 #chart .b:hover{filter:brightness(1.35)}
 #chartLbl{display:flex;gap:7px;font-size:10.5px;color:var(--faint);margin-top:4px}
-#chartLbl span{flex:1;text-align:center;overflow:hidden;white-space:nowrap}
+#chartLbl span,#speedChartLbl{display:flex;gap:7px;font-size:10.5px;color:var(--faint);margin-top:4px}
+#speedChartLbl{display:flex;gap:7px;font-size:10.5px;color:var(--faint);margin-top:4px}
+#chartLbl span,#speedChartLbl span{flex:1;text-align:center;overflow:hidden;white-space:nowrap}
 /* ── 簽到日曆 ── */
 .cal-h{display:flex;gap:10px;align-items:center;margin-top:6px;font-weight:700;font-size:13.5px}
 .cal-h .cal-nav{padding:3px 11px;font-size:15px;line-height:1.2}

@@ -108,7 +108,6 @@
       <label style="margin:0 8px 0 0;font-size:12.5px;color:var(--dim)">看哪個用戶：</label>
       <select id="userSel" onchange="pickUser(this.value)" style="max-width:340px"><option value="">載入中…</option></select>
     </div>
-    <button class="danger admOnly" style="display:none;margin-bottom:10px" onclick="purgeHistory()">🧹 清除舊錯誤紀錄（舊匯率/tokens當點數的遺留）</button>
     <div id="chart"></div>
     <div id="chartLbl"></div>
     <div class="muted" style="margin-top:6px">近 7 天用量（tokens / 天，左→右由舊到新）</div>
@@ -1246,7 +1245,7 @@ function drawSpeedChart(pts){
     const gy = (PT + (1 - f) * (H - PT - PB)).toFixed(1);
     return `<line x1="${PL}" y1="${gy}" x2="${W - PR}" y2="${gy}" stroke="rgba(120,160,220,.09)"/>`;
   }).join("");
-  const showVal = n <= 14;
+  const showVal = n <= 30;   // ≤30點都標數值（超出才只留節點，避免擠爆）
   const dots = ptsXY.map((p, i) =>
     `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="4" fill="#0b1220" stroke="#34d399" stroke-width="2"><title>${hhmm(SPEED_PTS[i].t)} · ${vals[i]} t/s · ${SPEED_PTS[i].tokens || "?"} tok · ${String(SPEED_PTS[i].model || "").split("/").pop()}</title></circle>` +
     (showVal ? `<text x="${p[0].toFixed(1)}" y="${(p[1] - 10).toFixed(1)}" text-anchor="middle" font-size="10.5" font-weight="600" fill="#a7f3d0">${vals[i]}</text>` : "")
