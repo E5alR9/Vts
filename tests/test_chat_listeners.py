@@ -3,7 +3,8 @@
 from conftest import ROOT  # noqa: F401
 from services.twitch_listener import parse_irc_line, parse_channels, build_queue_item as tw_item
 from services.youtube_live_listener import (
-    normalize_video_id, extract_continuation, parse_live_chat_response, build_queue_item as yt_item,
+    normalize_video_id, normalize_channel, extract_continuation, extract_live_from_html,
+    parse_live_chat_response, build_queue_item as yt_item,
 )
 
 # ⚠️ 必須與 vts_7L_test.py 軌道2 的正則一致（那邊負責拆出暱稱/ID/內容）
@@ -60,6 +61,48 @@ def test_normalize_video_id():
     assert normalize_video_id("https://www.youtube.com/watch?v=xyzABC12345&t=10") == "xyzABC12345"
     assert normalize_video_id("https://youtu.be/xyzABC12345") == "xyzABC12345"
     assert normalize_video_id("") == ""
+    # 頻道輸入不再當成直播 ID（交給 normalize_channel）
+    assert normalize_video_id("@LofiGirl") == ""
+    assert normalize_video_id("UCc5afI6TobiZjRke2sYBDPA") == ""
+    assert normalize_video_id("https://www.youtube.com/@LofiGirl") == ""
+    assert normalize_video_id("https://www.youtube.com/channel/UCc5afI6TobiZjRke2sYBDPA") == ""
+
+
+def test_normalize_channel():
+    assert normalize_channel("@LofiGirl") == "@LofiGirl"
+    assert normalize_channel("@LofiGirl/live") == "@LofiGirl"
+    assert normalize_channel("UCc5afI6TobiZjRke2sYBDPA") == "channel/UCc5afI6TobiZjRke2sYBDPA"
+    assert normalize_channel("https://www.youtube.com/@LofiGirl") == "@LofiGirl"
+    assert normalize_channel("https://www.youtube.com/channel/UCc5afI6TobiZjRke2sYBDPA") == "channel/UCc5afI6TobiZjRke2sYBDPA"
+    assert normalize_channel("https://www.youtube.com/c/SomeName") == "c/SomeName"
+    assert normalize_channel("") == ""
+    # 非頻道輸入回空
+    assert normalize_channel("abc123def45") == ""
+    assert normalize_channel("https://www.youtube.com/watch?v=abc123def45") == ""
+
+
+def _fake_live_page(video_id="3PFJ9SETS4M", is_live=True, ok=True, title="lofi radio"):
+    status = "OK" if ok else "LIVE_STREAM_OFFLINE"
+    pr = ('{"videoDetails":{"videoId":"VID","isLiveContent":LIVE,"title":"TITLE"},'
+          '"playabilityStatus":{"status":"STAT"}}').replace("VID", video_id).replace("LIVE", "true" if is_live else "false")
+    pr = pr.replace("TITLE", title).replace("STAT", status)
+    # 夾一個 '};' 誘餌：括號配對必須跳過它
+    return ('<html><link rel="canonical" href="https://www.youtube.com/watch?v=%s">'
+            "<script>var ytInitialPlayerResponse = %s;</script>"
+            "<script>var dummy = {a:1};</script></html>") % (video_id, pr)
+
+
+def test_extract_live_from_html_live_and_offline():
+    vid, is_live, title, ok = extract_live_from_html(_fake_live_page())
+    assert (vid, is_live, ok) == ("3PFJ9SETS4M", True, True)
+    assert title == "lofi radio"
+    vid, is_live, title, ok = extract_live_from_html(_fake_live_page(is_live=False, ok=False, title="some trailer"))
+    assert (vid, is_live, ok) == ("3PFJ9SETS4M", False, True)
+    # 空頁 / 無 canonical / 無 playerResponse
+    assert extract_live_from_html("") == (None, False, "", False)
+    assert extract_live_from_html("<html>no data</html>") == (None, False, "", False)
+    only_canon = '<link rel="canonical" href="https://www.youtube.com/watch?v=abc123def45">'
+    assert extract_live_from_html(only_canon) == ("abc123def45", False, "", False)
 
 
 def test_extract_continuation_patterns():

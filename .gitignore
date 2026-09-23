@@ -1,5 +1,7 @@
 # --- secrets / tokens ---
 .env
+.env.backup
+*.envtmp
 6.env
 vts_token.txt
 vts_token.txt.bak

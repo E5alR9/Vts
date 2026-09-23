@@ -11,6 +11,7 @@
    不會影響主程式。
 """
 import asyncio
+import json
 import os
 import re
 import time
@@ -31,10 +32,84 @@ _CONT_PATTERNS = [
 
 
 def normalize_video_id(raw: str) -> str:
-    """接受完整網址（v= / youtu.be/ / live/）或裸 ID"""
-    raw = (raw or "").strip()
+    """接受完整網址（v= / youtu.be/ / live/）或裸 ID。頻道輸入請用 resolve_live_video_id。"""
+    raw = (raw or "").strip().strip("'\"")
+    if not raw:
+        return ""
+    # 頻道（@handle / UC id / 網址）不是直播 ID → 交給頻道解析
+    if raw.startswith("@") or re.fullmatch(r"UC[A-Za-z0-9_\-]{20,}", raw) \
+            or re.search(r"youtube\.com/@|youtube\.com/channel/|youtube\.com/(c|user)/", raw):
+        return ""
     m = re.search(r"(?:v=|youtu\.be/|live/)([A-Za-z0-9_\-]{6,})", raw)
     return m.group(1) if m else raw
+
+
+def normalize_channel(raw: str) -> str:
+    """頻道輸入正規化 → 用於 https://www.youtube.com/{channel}/live 的路徑部分
+    支援：@handle / UC id / 完整網址。非頻道輸入回 ''。"""
+    raw = (raw or "").strip().strip("'\"")
+    if not raw:
+        return ""
+    if raw.startswith("@"):
+        return raw.split("/")[0].rstrip("/")
+    m = re.search(r"youtube\.com/(@[^/?#]+|channel/UC[A-Za-z0-9_\-]+|(?:c|user)/[^/?#]+)", raw)
+    if m:
+        return m.group(1)
+    if re.fullmatch(r"UC[A-Za-z0-9_\-]{20,}", raw):
+        return f"channel/{raw}"
+    return ""
+
+
+def extract_live_from_html(html: str):
+    """純函式：{channel}/live 頁 → (video_id, is_live, title, ok)
+    video_id 取 canonical（頻道當前直播或最近預告）；
+    is_live 以 ytInitialPlayerResponse.videoDetails.isLiveContent 判定；
+    解析失敗時 video_id 回 None、ok 回 False（呼叫端重試）。"""
+    if not html:
+        return None, False, "", False
+    canon = re.findall(r'rel="canonical" href="[^"]*[?&]v=([A-Za-z0-9_\-]{6,})', html)
+    video_id = canon[0] if canon else None
+    raw = cut_balanced_json(html, "ytInitialPlayerResponse")
+    if not raw or not video_id:
+        return video_id, False, "", False
+    try:
+        pr = json.loads(raw)
+    except Exception:
+        return video_id, False, "", True        # 有 ID 但狀態解析失敗 → 讓呼叫端用聊天端點二次確認
+    vd = pr.get("videoDetails") or {}
+    ok = (pr.get("playabilityStatus") or {}).get("status") == "OK"
+    is_live = bool(vd.get("isLiveContent")) and ok
+    return video_id, is_live, str(vd.get("title") or "")[:80], True
+
+
+def cut_balanced_json(html: str, marker: str):
+    """括號配對切出 marker 後的第一個完整 JSON（防 ytInitialPlayerResponse 內嵌 '};'）"""
+    i = html.find(marker)
+    if i < 0:
+        return None
+    j = html.find("{", i)
+    if j < 0:
+        return None
+    depth, instr, esc = 0, False, False
+    for k in range(j, len(html)):
+        c = html[k]
+        if instr:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                instr = False
+        else:
+            if c == '"':
+                instr = True
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    return html[j:k + 1]
+    return None
 
 
 def extract_continuation(html: str):
@@ -110,16 +185,43 @@ def build_queue_item(user: str, message: str) -> dict:
 
 
 async def youtube_live_worker(input_queue):
-    """背景協程：輪詢 YouTube Live 聊天室（抓頁面 → 輪詢 → 轉發，自動換代 token）"""
+    """背景協程：頻道模式（YOUTUBE_CHANNEL → 跟進目前直播）優先，否則用直播 ID。
+
+    頻道模式：每 60s 查 {channel}/live 的 canonical + isLiveContent；
+              在播 → 輪詢聊天室；不在播 → 記錄狀態待命。
+    """
     vid = normalize_video_id(os.getenv("YOUTUBE_LIVE_ID") or "")
-    if not vid:
-        log_print("ℹ️ [YouTube] 未設定 YOUTUBE_LIVE_ID，聊天室監聽未啟動")
+    channel = normalize_channel(os.getenv("YOUTUBE_CHANNEL") or "")
+    if not vid and not channel:
+        log_print("ℹ️ [YouTube] 未設定 YOUTUBE_CHANNEL 或 YOUTUBE_LIVE_ID，聊天室監聽未啟動")
         return
 
     headers = {"User-Agent": _UA, "Content-Type": "application/json"}
     warned_no_cont = False
 
     async with httpx.AsyncClient(timeout=25, headers={"User-Agent": _UA}) as cli:
+        # ── 頻道模式的前置解析：{channel}/live → canonical + isLiveContent ──
+        async def resolve_channel():
+            try:
+                page = await cli.get(f"https://www.youtube.com/{channel}/live")
+                return extract_live_from_html(page.text)
+            except Exception as e:
+                return None, False, "", False
+
+        if channel and not vid:
+            video_id, is_live, title, ok = await resolve_channel()
+            if not ok or not video_id:
+                log_print(f"⚠️ [YouTube] 頻道 {channel} 解析失敗（YouTube 改版？），60 秒後重試")
+                await asyncio.sleep(60)
+                return
+            if not is_live:
+                log_print(f"📺 [YouTube] 頻道 {channel} 目前沒有直播（最近：{title or video_id}），60 秒後再查")
+                # 暫時不用 input_queue.put：靜默待命，避免每分鐘灌一次「沒直播」
+                await asyncio.sleep(60)
+                return
+            vid = video_id
+            log_print(f"📺 [YouTube] 頻道 {channel} 正在直播：{title or vid}（ID={vid}），開始輪詢聊天室")
+
         cont = None
         while True:                                   # 外層：取得（或重新取得）continuation
             try:
