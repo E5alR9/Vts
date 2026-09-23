@@ -309,15 +309,17 @@ async function ensureMonthlyQuota(users, token) {
   const ym = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}`;
   if (u.quotaReset === ym) return false;
   u.quotaReset = ym;
-  if (u.credits !== -1) u.credits = Number(u.monthlyQuota);
+  // 補發 = 加點（不可覆寫：覆寫會把用戶自儲餘額洗掉，訂閱變倒虧）
+  if (u.credits !== -1) u.credits = Math.round(((Number(u.credits) || 0) + Number(u.monthlyQuota)) * 1e6) / 1e6;
   return true;
 }
 
 /** 用量記錄：gr:usage:{yyyymmdd} JSON {token: {tokens(真實), points(扣點), reqs, models}} + user.usedTokens 累加 */
+/** 用量日 key（站務時區 UTC+8＝台北：日界線以台北午夜為準，與前端日曆一致） */
 function dayKey(d) {
-  const t = d || new Date();
+  const t = new Date((d ? d.getTime() : Date.now()) + 8 * 3600000);
   const p = (n) => String(n).padStart(2, "0");
-  return `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}`;
+  return `${t.getUTCFullYear()}${p(t.getUTCMonth() + 1)}${p(t.getUTCDate())}`;
 }
 
 async function recordUsage(userToken, model, tokens, points) {
@@ -357,7 +359,9 @@ async function getUsage(days) {
     const dk = `gr:usage:${dayKey(d)}`;
     try {
       const raw = await k.get(dk);
-      out.push({ day: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
+      const tw = new Date(d.getTime() + 8 * 3600000);   // 標籤與 key 同用 UTC+8，避免錯位一天
+      const iso = `${tw.getUTCFullYear()}-${String(tw.getUTCMonth() + 1).padStart(2, "0")}-${String(tw.getUTCDate()).padStart(2, "0")}`;
+      out.push({ day: iso,
         data: raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {} });
     } catch { out.push({ day: "", data: {} }); }
   }
@@ -365,17 +369,16 @@ async function getUsage(days) {
 }
 
 /* ── 方案（plus/pro/max/ultra 預留）：gr:plans {id:{label,monthlyQuota,rewardMult}} ── */
-/** 方案（分級容量）：fee=30天訂閱費(點) · h5/wk=每5h/每週額度(點,0=不限制;
- *  Free=純付費用戶不設任何限制(打多少扣多少、無窗口/無RPM/無總量)；付費檔=月補+獎勵倍率+額度階梯
- *  monthlyQuota=月重置額 · rewardMult=簽到/推薦倍率 · __v 版本遷移（舊表自動換新） */
+/** 方案（分級容量）：fee=30天訂閱費 · h5/wk=額度(0=不限制,Free全0純付費) · disc=API扣點折扣(1=原價)
+ *  月補=每月「加發」(不覆寫餘額) · rewardMult=簽到/推薦倍率 · __v 版本遷移 */
 const DEFAULT_PLANS = {
-  free:  { label: "Free",  monthlyQuota: 0,    rewardMult: 1,   fee: 0,    h5: 0,     wk: 0 },
-  plus:  { label: "Plus",  monthlyQuota: 30,   rewardMult: 1.5, fee: 20,   h5: 15,    wk: 120 },
-  pro:   { label: "Pro",   monthlyQuota: 150,  rewardMult: 2,   fee: 100,  h5: 80,    wk: 600 },
-  max:   { label: "Max",   monthlyQuota: 900,  rewardMult: 3,   fee: 500,  h5: 500,   wk: 3600 },
-  ultra: { label: "Ultra", monthlyQuota: 3500, rewardMult: 5,   fee: 2000, h5: 3000,  wk: 21600 },
+  free:  { label: "Free",  monthlyQuota: 0,    rewardMult: 1,   fee: 0,    h5: 0,     wk: 0,     disc: 1 },
+  plus:  { label: "Plus",  monthlyQuota: 30,   rewardMult: 1.5, fee: 20,   h5: 15,    wk: 120,   disc: 0.95 },
+  pro:   { label: "Pro",   monthlyQuota: 150,  rewardMult: 2,   fee: 100,  h5: 80,    wk: 600,   disc: 0.9 },
+  max:   { label: "Max",   monthlyQuota: 900,  rewardMult: 3,   fee: 500,  h5: 500,   wk: 3600,  disc: 0.85 },
+  ultra: { label: "Ultra", monthlyQuota: 3500, rewardMult: 5,   fee: 2000, h5: 3000,  wk: 21600, disc: 0.8 },
 };
-const PLANS_VERSION = 3;   // v3: Free 改為完全不限制
+const PLANS_VERSION = 4;   // v4: 加 API 扣點折扣 disc
 
 async function getPlans() {
   const k = kv();
@@ -407,17 +410,19 @@ function activePlanOf(u, plans) {
 function planCapsFor(plans, planId, ev) {
   const p = plans[planId] || plans.free || {};
   const m = ev ? (Number(ev.mult) || 1) : 1;
+  const d = Number(p.disc);
   return { h5: (Number(p.h5) || 0) * m, wk: (Number(p.wk) || 0) * m,
+    disc: (d > 0 && d <= 1) ? d : 1,
     fee: Number(p.fee) || 0, rewardMult: Number(p.rewardMult) || 1,
     monthlyQuota: Number(p.monthlyQuota) || 0, label: p.label || planId };
 }
 
-/** 每小時用量桶：u.uh = {"YYYYMMDDHH": 點數}，只留168小時（7天） */
+/** 每小時用量桶：u.uh = {"YYYYMMDDHH": 點數}，只留168小時（7天）· 時區=UTC+8 */
 const UH_KEEP = 168;
 function hourKey(d) {
-  const t = d || new Date();
+  const t = new Date((d ? d.getTime() : Date.now()) + 8 * 3600000);
   const p = (n) => String(n).padStart(2, "0");
-  return `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}${p(t.getHours())}`;
+  return `${t.getUTCFullYear()}${p(t.getUTCMonth() + 1)}${p(t.getUTCDate())}${p(t.getUTCHours())}`;
 }
 async function addHourlySpend(u, pts) {
   const k = hourKey();
@@ -453,9 +458,9 @@ async function setEvent(e) {
 
 function activeEvent(ev) {
   if (!ev || !ev.enabled) return null;
-  const t = new Date();
+  const t = new Date(Date.now() + 8 * 3600000);   // 站務時區 UTC+8：活動到期=台北午夜
   const p = (n) => String(n).padStart(2, "0");
-  const today = `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}`;
+  const today = `${t.getUTCFullYear()}-${p(t.getUTCMonth() + 1)}-${p(t.getUTCDate())}`;
   if (ev.until && today > String(ev.until)) return null;
   return ev;
 }
@@ -566,4 +571,4 @@ async function getSpeed() {
   } catch { return []; }
 }
 
-module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, MODEL_PRICES, MODEL_SPECS, POINTS_PER_USD, costFor, logRequest, getLogs, logUserReq, getUserReqs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel, getPlans, setPlans, DEFAULT_PLANS, activePlanOf, planCapsFor, addHourlySpend, hourlySpend, getEvent, setEvent, activeEvent, keyStatHash, recordKeyStat, getKeyStat, recordSpeed, getSpeed };
+module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, dayKey, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, MODEL_PRICES, MODEL_SPECS, POINTS_PER_USD, costFor, logRequest, getLogs, logUserReq, getUserReqs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel, getPlans, setPlans, DEFAULT_PLANS, activePlanOf, planCapsFor, addHourlySpend, hourlySpend, getEvent, setEvent, activeEvent, keyStatHash, recordKeyStat, getKeyStat, recordSpeed, getSpeed };

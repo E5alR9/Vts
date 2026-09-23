@@ -147,9 +147,9 @@ module.exports = async (req, res) => {
         return sendJson(res, 400, { ok: false, error: { message: "ADMIN_TOKEN 不用簽到" } });
       }
       const today = (() => {
-        const t = new Date();
+        const t = new Date(Date.now() + 8 * 3600000);   // 站務時區 UTC+8（台北）— 與前端日曆同一天
         const p = (n) => String(n).padStart(2, "0");
-        return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}`;
+        return `${t.getUTCFullYear()}-${p(t.getUTCMonth() + 1)}-${p(t.getUTCDate())}`;
       })();
       const users = (await store.getUsers()) || {};
       const u = users[a.user.token];
@@ -238,6 +238,7 @@ module.exports = async (req, res) => {
         plans: Object.entries(plans).map(([id, p]) => ({ id,
           label: p.label || id, fee: Number(p.fee) || 0, h5: Number(p.h5) || 0,
           wk: Number(p.wk) || 0, monthlyQuota: Number(p.monthlyQuota) || 0,
+          disc: (Number(p.disc) > 0 && Number(p.disc) <= 1) ? Number(p.disc) : 1,
           rewardMult: Number(p.rewardMult) || 1 })) });
     }
     if (action === "plan.subscribe") {

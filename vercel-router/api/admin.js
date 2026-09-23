@@ -279,13 +279,11 @@ module.exports = async (req, res) => {
     if (action === "usage.purge") {
       const k = store.kv();
       if (!k) return sendJson(res, 503, { ok: false, error: { message: "無 KV" } });
-      const p = (n) => String(n).padStart(2, "0");
-      const keys = [];
-      for (let i = 0; i < 400; i++) {                   // 覆蓋365天窗口+餘裕
-        const d = new Date(Date.now() - i * 86400000);
-        keys.push(`gr:usage:${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`);
-      }
       let removed = 0;
+      const keys = [];
+      for (let i = 0; i < 400; i++) {                 // 覆蓋365天窗口+餘裕（dayKey=UTC+8）
+        keys.push(`gr:usage:${store.dayKey(new Date(Date.now() - i * 86400000))}`);
+      }
       try {
         const pl = k.pipeline();                        // pipeline = 1次HTTP刪全部（避開30s上限）
         for (const key of keys) pl.del(key);
@@ -429,6 +427,7 @@ module.exports = async (req, res) => {
         if (p.fee !== undefined)         { const f = num(p.fee, 0, 1e9, "fee");         if (f === undefined) return; cur[id].fee = f; }
         if (p.h5 !== undefined)          { const h = num(p.h5, 0, 1e9, "h5");           if (h === undefined) return; cur[id].h5 = h; }
         if (p.wk !== undefined)          { const w = num(p.wk, 0, 1e9, "wk");           if (w === undefined) return; cur[id].wk = w; }
+        if (p.disc !== undefined)        { const c = num(p.disc, 0.01, 1, "disc");      if (c === undefined) return; cur[id].disc = c; }
       }
       await store.setPlans(cur);
       return sendJson(res, 200, { ok: true, plans: cur });
