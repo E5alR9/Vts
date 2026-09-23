@@ -39,7 +39,7 @@ function parseBody(req) {
 }
 
 function cleanUser(token, u) {
-  return { name: u.name, role: u.role, credits: u.credits,
+  return { token: token || "", name: u.name, role: u.role, credits: u.credits,
     usedTokens: u.usedTokens || 0, disabled: !!u.disabled, createdAt: u.createdAt || "" };
 }
 

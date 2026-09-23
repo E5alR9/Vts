@@ -3,77 +3,191 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Groq Router · 我的用量</title>
+<title>Groq Router · 控制台</title>
 <link rel="stylesheet" href="/web/theme.css">
 </head>
 <body>
-<header><h1><span class="logo">⚡</span><span><b>Groq Router</b> 我的用量</span></h1><button onclick="logout()">登出</button></header>
+<div class="sidebar" id="sidebar">
+  <div class="brand"><span class="logo">⚡</span><b>GR</b> Router</div>
+  <div class="grp">概覽</div>
+  <a href="#/dash" data-nav="dash"><span class="ico">📊</span>儀表板</a>
+  <a href="#/usage" data-nav="usage"><span class="ico">📈</span>用量明細</a>
+  <div class="grp">開發者</div>
+  <a href="#/api" data-nav="api"><span class="ico">🔑</span>API 金鑰</a>
+  <div class="grp">帳號</div>
+  <a href="#/account" data-nav="account"><span class="ico">👤</span>帳號 / 點數</a>
+  <div class="side-foot">Groq Router · 用戶控制台</div>
+</div>
+<header>
+  <h1><button class="burger" onclick="document.body.classList.toggle('nav-open')">☰</button><span class="logo">⚡</span><span><b>Groq Router</b> <span id="pageTitle">儀表板</span></span></h1>
+  <span class="pill" id="hdrCredits">點數 …</span>
+  <button onclick="logout()">登出</button>
+</header>
 <main>
-  <section id="secMe">
-    <h2>👤 帳號</h2>
-    <div class="kv" id="kvMe"><div>狀態</div><div>載入中…</div></div>
-    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-      <button class="cp" onclick="checkin()">📅 每日簽到領點數</button>
+  <section id="secDash" style="grid-column:span 12">
+    <div class="stats">
+      <div class="stat"><div class="v" id="stCredits">–</div><div class="l">可用點數</div></div>
+      <div class="stat"><div class="v" id="stTokens">–</div><div class="l">累計 tokens</div></div>
+      <div class="stat"><div class="v" id="st7tok">–</div><div class="l">近 7 天 tokens</div></div>
+      <div class="stat"><div class="v" id="st7req">–</div><div class="l">近 7 天請求</div></div>
     </div>
-    <h2 style="margin-top:14px">🎟️ 兌換邀請碼</h2>
-    <div style="display:flex;gap:8px">
-      <input type="text" id="invCode" placeholder="例如：X7K2-9PQ4" style="flex:1;background:#0b0f14;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:7px 9px">
-      <button class="cp" onclick="redeem()">兌換</button>
+    <h2>📈 近 7 天走勢 <small id="dashTotal"></small></h2>
+    <div id="chart"></div>
+    <div id="chartLbl"></div>
+    <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+      <button class="primary" onclick="checkin()">📅 每日簽到領點數</button>
+      <button onclick="location.hash='#/api'">🔑 取得 API 金鑰</button>
+      <button onclick="location.hash='#/account'">🎟️ 兌換邀請碼</button>
     </div>
-    <h2 style="margin-top:14px">🔑 API 用法</h2>
-    <div class="muted">OpenAI 相容端點（把 token 當 api_key）：</div>
-    <pre>from openai import OpenAI
-client = OpenAI(
-    base_url="https://vercel-router-khaki.vercel.app/v1",
-    api_key="你的 token",
-)</pre>
   </section>
-  <section id="secUse">
-    <h2>📊 近 7 天用量 <small id="useTotal"></small></h2>
+
+  <section id="secUsage" style="grid-column:span 12">
+    <h2>📊 用量明細（近 7 天）<small id="useTotal"></small></h2>
     <table><thead><tr><th>日期</th><th>tokens</th><th>請求</th><th>模型</th></tr></thead>
     <tbody id="useRows"><tr><td colspan="4" class="muted">載入中…</td></tr></tbody></table>
   </section>
+
+  <section id="secApi" style="grid-column:span 12">
+    <h2>🔑 API 金鑰 <small>把金鑰當 api_key 打到 OpenAI 相容端點</small></h2>
+    <div class="kv">
+      <div>你的金鑰</div><div><code id="apiKey">載入中…</code> <button onclick="cpText('apiKey','已複製金鑰 ✅')">複製</button></div>
+      <div>端點</div><div><code>https://vercel-router-khaki.vercel.app/v1</code></div>
+      <div>可用模型</div><div class="muted">qwen3.8-27b · qwen3-32b · gpt-oss-120b/20b · allam-7b（依梯隊自動降級）</div>
+    </div>
+    <h2 style="margin-top:16px">🐍 Python</h2>
+    <pre id="snipPy"></pre><button onclick="cpText('snipPy','已複製 Python 範例 ✅')">複製</button>
+    <h2 style="margin-top:16px">🌐 JavaScript</h2>
+    <pre id="snipJs"></pre><button onclick="cpText('snipJs','已複製 JS 範例 ✅')">複製</button>
+    <h2 style="margin-top:16px">⚡ curl</h2>
+    <pre id="snipCurl"></pre><button onclick="cpText('snipCurl','已複製 curl 範例 ✅')">複製</button>
+  </section>
+
+  <section id="secAccount" style="grid-column:span 12">
+    <h2>👤 帳號</h2>
+    <div class="kv" id="kvMe"><div>狀態</div><div>載入中…</div></div>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+      <button class="primary" onclick="checkin()">📅 每日簽到領點數</button>
+      <button class="danger" onclick="logout()">🚪 登出</button>
+    </div>
+    <h2 style="margin-top:16px">🎟️ 兌換邀請碼</h2>
+    <div style="display:flex;gap:8px">
+      <input type="text" id="invCode" placeholder="例如：X7K2-9PQ4" style="flex:1">
+      <button class="primary" onclick="redeem()">兌換</button>
+    </div>
+    <div class="muted" style="margin-top:10px">沒有邀請碼？找管理員拿，或每天簽到領 <code>CHECKIN_CREDITS</code> 點。</div>
+  </section>
 </main>
+<div id="toast"></div>
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
 const ses = localStorage.getItem("gr_session");
 if(!ses) location.href = "/login";
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
-function logout(){ localStorage.removeItem("gr_session");
-  fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+ses},
-    body:JSON.stringify({action:"logout"})}).finally(()=>location.href="/login"); }
+function toast(msg, err){
+  const d = document.createElement("div");
+  if(err) d.className = "err";
+  d.textContent = msg; $("toast").appendChild(d);
+  setTimeout(()=>d.remove(), 3500);
+}
+async function post(body){
+  const r = await fetch("/api/auth",{method:"POST",
+    headers:{"Content-Type":"application/json",Authorization:"Bearer "+ses},
+    body:JSON.stringify(body)});
+  return r.json();
+}
+function logout(){
+  post({action:"logout"}).finally(()=>{ localStorage.removeItem("gr_session"); location.href="/login"; });
+}
 async function checkin(){
   try{
-    const j = await (await fetch("/api/auth",{method:"POST",
-      headers:{"Content-Type":"application/json",Authorization:"Bearer "+ses},
-      body:JSON.stringify({action:"checkin"})})).json();
-    alert(j.message || (j.ok ? "簽到成功" : "失敗"));
-    if(j.ok) location.reload();
-  }catch(e){ alert("失敗："+e.message); }
+    const j = await post({action:"checkin"});
+    toast(j.message || (j.ok ? "簽到成功 ✅" : "失敗"), !j.ok);
+    if(j.ok) setTimeout(()=>location.reload(), 700);
+  }catch(e){ toast("失敗："+e.message, true); }
 }
 async function redeem(){
   const code = $("invCode").value.trim();
-  if(!code) return alert("請輸入邀請碼");
+  if(!code) return toast("請輸入邀請碼", true);
   try{
-    const j = await (await fetch("/api/auth",{method:"POST",
-      headers:{"Content-Type":"application/json",Authorization:"Bearer "+ses},
-      body:JSON.stringify({action:"invites.redeem", code})})).json();
-    alert(j.message || (j.ok ? "兌換成功" : "失敗"));
-    if(j.ok) location.reload();
-  }catch(e){ alert("失敗："+e.message); }
+    const j = await post({action:"invites.redeem", code});
+    toast(j.message || (j.ok ? "兌換成功 ✅" : "失敗"), !j.ok);
+    if(j.ok) setTimeout(()=>location.reload(), 700);
+  }catch(e){ toast("失敗："+e.message, true); }
 }
+async function cpText(id, msg){
+  try{ await navigator.clipboard.writeText($(id).textContent); toast(msg); }
+  catch{ toast("複製失敗，請手動選取", true); }
+}
+
+/* ── 側欄多頁路由（section DOM 搬移，同 admin）── */
+const PAGES = { dash:["secDash"], usage:["secUsage"], api:["secApi"], account:["secAccount"] };
+const PAGE_TITLE = { dash:"儀表板", usage:"用量明細", api:"API 金鑰", account:"帳號 / 點數" };
+function buildPages(){
+  const main = document.querySelector("main");
+  for (const [name, ids] of Object.entries(PAGES)) {
+    const page = document.createElement("div");
+    page.className = "page"; page.id = "page-" + name; page.style.display = "none";
+    main.appendChild(page);
+    for (const id of ids) { const el = $(id); if (el) page.appendChild(el); }
+  }
+  route();
+}
+function route(){
+  const name = location.hash.replace(/^#\/?/, "") || "dash";
+  const target = PAGES[name] ? name : "dash";
+  document.querySelectorAll(".page").forEach(p => {
+    p.style.display = (p.id === "page-" + target) ? "grid" : "none";
+  });
+  document.querySelectorAll("[data-nav]").forEach(a =>
+    a.classList.toggle("active", a.dataset.nav === target));
+  const t = $("pageTitle"); if (t) t.textContent = PAGE_TITLE[target] || "";
+  document.body.classList.remove("nav-open");
+}
+window.addEventListener("hashchange", route);
+
+function fillSnippets(key){
+  const BASE = "https://vercel-router-khaki.vercel.app/v1";
+  $("apiKey").textContent = key;
+  $("snipPy").textContent =
+`from openai import OpenAI
+client = OpenAI(base_url="${BASE}", api_key="${key}")
+r = client.chat.completions.create(model="qwen/qwen3.8-27b",
+    messages=[{"role": "user", "content": "你好"}])
+print(r.choices[0].message.content)`;
+  $("snipJs").textContent =
+`const res = await fetch("${BASE}/chat/completions", {
+  method: "POST",
+  headers: { "Content-Type": "application/json",
+             "Authorization": "Bearer ${key}" },
+  body: JSON.stringify({ model: "qwen/qwen3.8-27b",
+    messages: [{ role: "user", content: "你好" }] }),
+});
+console.log(await res.json());`;
+  $("snipCurl").textContent =
+`curl ${BASE}/chat/completions \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer ${key}" \\
+  -d '{"model":"qwen/qwen3.8-27b","messages":[{"role":"user","content":"你好"}]}'`;
+}
+
 (async function boot(){
   try{
     const me = await (await fetch("/api/auth?action=me",{headers:{Authorization:"Bearer "+ses}})).json();
     if(!me.ok){ localStorage.removeItem("gr_session"); return location.href="/login"; }
     if(me.kind==="admin"||(me.user&&me.user.role==="admin")) return location.href="/admin";
     const u = me.user;
+    const credits = u.credits===-1 ? "無限" : u.credits;
+    $("hdrCredits").textContent = `👤 ${u.name} · 點數 ${credits}`;
+    $("stCredits").textContent = credits;
+    $("stTokens").textContent = u.usedTokens||0;
     $("kvMe").innerHTML = [
-      ["名稱", u.name], ["角色", u.role],
-      ["點數", u.credits===-1 ? "無限" : u.credits],
+      ["名稱", u.name], ["角色", u.role], ["點數", credits],
       ["累計用量", (u.usedTokens||0)+" tokens"],
+      ["註冊時間", u.createdAt ? u.createdAt.slice(0,10) : "--"],
     ].map(([k,v])=>`<div>${esc(k)}</div><div>${esc(v)}</div>`).join("");
+    if(u.token) fillSnippets(u.token);
+
     const uj = await (await fetch("/api/auth?action=usage&days=7",{headers:{Authorization:"Bearer "+ses}})).json();
     const rows = uj.usage||[];
     let tot=0, req=0;
@@ -83,9 +197,20 @@ async function redeem(){
       return `<tr><td>${esc(d.day)}</td><td>${esc(d.tokens||0)}</td><td>${esc(d.reqs||0)}</td><td>${models}</td></tr>`;
     }).join("");
     $("useTotal").textContent = `共 ${tot} tokens / ${req} 次`;
+    $("dashTotal").textContent = `共 ${tot} tokens / ${req} 次`;
+    $("st7tok").textContent = tot;
+    $("st7req").textContent = req;
+
+    const max = Math.max(1, ...rows.map(d=>d.tokens||0));
+    $("chart").innerHTML = rows.map(d=>{
+      const h = Math.round((d.tokens||0)/max*100);
+      return `<div class="b" style="height:${Math.max(h,2)}%" title="${esc(d.day)}: ${d.tokens||0} tokens"></div>`;
+    }).join("");
+    $("chartLbl").innerHTML = rows.map(d=>`<span>${esc(String(d.day).slice(5))}</span>`).join("");
   }catch(e){
     $("kvMe").innerHTML = `<div>錯誤</div><div>${esc(e.message)}</div>`;
   }
+  buildPages();
 })();
 </script>
 </body>
