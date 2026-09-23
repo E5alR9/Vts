@@ -209,6 +209,40 @@ main{margin-left:218px;max-width:calc(1360px + 218px);padding-top:22px}
 .acct-menu a.danger-a{color:#fda4af}
 .acct-menu a.danger-a:hover{background:rgba(251,113,133,.14);color:var(--bad)}
 .acct-menu .sep{height:1px;background:var(--line);margin:5px 4px}
+/* ── Playground 聊天式（串流氣泡）── */
+.play-chat{display:flex;flex-direction:column;gap:10px;
+  height:calc(100vh - 265px);min-height:420px;overflow-y:auto;
+  padding:14px;background:rgba(6,10,20,.55);border:1px solid var(--line);border-radius:14px}
+.msg{display:flex}
+.msg.user{justify-content:flex-end}
+.msg .bubble{max-width:78%;padding:10px 15px;border-radius:16px;font-size:13.5px;line-height:1.7;
+  word-break:break-word;overflow-wrap:anywhere}
+.msg.user .bubble{background:linear-gradient(135deg,#155e75,#4338ca);color:#eafcff;border-bottom-right-radius:5px;
+  box-shadow:0 4px 16px rgba(56,189,248,.20)}
+.msg.ai .bubble{background:var(--panel-solid);border:1px solid var(--line2);border-bottom-left-radius:5px;
+  width:100%;max-width:97%}
+.bubble .reason{font-size:12.5px;color:var(--dim);border-left:3px solid var(--acc2);padding:5px 11px;margin:0 0 9px;
+  white-space:pre-wrap;background:rgba(167,139,250,.08);border-radius:0 9px 9px 0}
+.bubble .costline{margin-top:11px;padding:7px 12px;border-radius:10px;font-size:12.5px;
+  background:rgba(52,211,153,.09);border:1px solid rgba(52,211,153,.3);color:#a7f3d0}
+.bubble .costline b{color:#6ee7b7}
+.cursor{color:var(--acc);font-weight:700;animation:blink .9s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+/* 氣泡內 markdown */
+.bubble h1,.bubble h2,.bubble h3,.bubble h4{margin:.75em 0 .4em;font-size:1.1em;line-height:1.4;color:var(--txt)}
+.bubble h1:first-child,.bubble h2:first-child,.bubble h3:first-child{margin-top:0}
+.bubble p{margin:.5em 0}
+.bubble ul,.bubble ol{margin:.45em 0;padding-left:1.5em}
+.bubble li{margin:.22em 0}
+.bubble code{background:rgba(6,10,20,.9);border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-size:.92em}
+.bubble pre{background:rgba(6,10,20,.92);border:1px solid var(--line);border-radius:10px;padding:11px;overflow-x:auto;margin:.55em 0}
+.bubble pre code{border:none;background:none;padding:0}
+.bubble blockquote{border-left:3px solid var(--acc);margin:.55em 0;padding:3px 13px;color:var(--dim)}
+.bubble hr{border:none;border-top:1px solid var(--line);margin:.85em 0}
+.bubble strong{color:#fff}
+.bubble table{border-collapse:collapse;margin:.5em 0}
+.bubble th,.bubble td{border:1px solid var(--line);padding:5px 10px}
+.bubble th{background:rgba(56,189,248,.08)}
 /* ── 開關 ── */
 .switch{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px dashed rgba(120,160,220,.12)}
 .switch:last-child{border-bottom:none}
