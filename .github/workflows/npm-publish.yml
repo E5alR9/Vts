@@ -1,0 +1,64 @@
+name: Publish aivtuber-yt to npm
+
+# 打 tag 即發布：git tag aivtuber-yt-v0.1.0 && git push origin aivtuber-yt-v0.1.0
+on:
+  push:
+    tags:
+      - "aivtuber-yt-v*"
+
+permissions:
+  contents: read
+  id-token: write   # OIDC trusted publishing 用
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/aivtuber-yt
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+
+      - name: 版本一致性檢查（tag 必須等於 package.json）
+        run: |
+          TAG="${GITHUB_REF_NAME#aivtuber-yt-v}"
+          PKG=$(node -p "require('./package.json').version")
+          echo "tag: $TAG / package.json: $PKG"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::tag 版本($TAG)與 package.json($PKG)不一致，先改 package.json 再打 tag"
+            exit 1
+          fi
+
+      - name: 冒煙測試（22 斷言，純函式不打網路）
+        run: |
+          node -e "
+          const yt = require('./src/index.js');
+          const A = (n, c) => { if (!c) { console.error('FAIL '+n); process.exitCode = 1; } };
+          A('ch', yt.normalizeChannel('@LofiGirl') === '@LofiGirl');
+          A('vid', yt.normalizeVideoId('https://www.youtube.com/watch?v=xyzABC12345') === 'xyzABC12345');
+          A('cont', yt.extractContinuation('{\"continuation\":\"ABCDEFG1234567890_-\"}') === 'ABCDEFG1234567890_-');
+          console.log('smoke ok');
+          "
+
+      # 方式一（推薦）：npm Trusted Publishing（不用 token）
+      #   npmjs.com → 你的帳號 → Access Tokens → Trusted Publisher → 新增：
+      #   組織/用戶、repo E5alR9/Vts、workflow npm-publish.yml、環境（留空）
+      #   首次發布前需先用 token 發過一次（npm 規定），之後全自動。
+      - name: 發布（OIDC trusted publishing）
+        if: ${{ vars.NPM_PUBLISH_MODE != 'token' }}
+        run: npm publish --provenance --access public
+
+      # 方式二：NPM_TOKEN secret
+      #   npmjs.com → Access Tokens → Generate New Token（Automation）→
+      #   GitHub repo → Settings → Secrets → Actions → 新增 NPM_TOKEN
+      #   並在 repo Variables 加 NPM_PUBLISH_MODE=token
+      - name: 發布（NPM_TOKEN）
+        if: ${{ vars.NPM_PUBLISH_MODE == 'token' }}
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
