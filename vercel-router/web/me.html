@@ -468,8 +468,12 @@ async function loadPlan(){
     const b5 = $("bar5"), bw = $("barWk");
     b5.style.width = p5 + "%"; b5.style.background = p5 >= 80 ? "linear-gradient(90deg,#f87171,#fb7185)" : "";
     bw.style.width = pw + "%"; bw.style.background = pw >= 80 ? "linear-gradient(90deg,#f87171,#fb7185)" : "";
-    $("plan5txt").textContent = `${fmtPts(j.used5)} / ${j.caps.h5 ? fmtPts(j.caps.h5) : "∞"} 點 · ${p5.toFixed(1)}%`;
-    $("planWktxt").textContent = `${fmtPts(j.usedWk)} / ${j.caps.wk ? fmtPts(j.caps.wk) : "∞"} 點 · ${pw.toFixed(1)}%`;
+    $("plan5txt").textContent = j.caps.h5 > 0
+      ? `${fmtPts(j.used5)} / ${fmtPts(j.caps.h5)} 點 · ${p5.toFixed(1)}%`
+      : `${fmtPts(j.used5)} / ∞ 點 · 不限制`;
+    $("planWktxt").textContent = j.caps.wk > 0
+      ? `${fmtPts(j.usedWk)} / ${fmtPts(j.caps.wk)} 點 · ${pw.toFixed(1)}%`
+      : `${fmtPts(j.usedWk)} / ∞ 點 · 不限制`;
     $("planRoi").innerHTML = j.roi
       ? (j.roi.paid
         ? `✅ 已回本：本月 API 用量 ${fmtPts(j.roi.spend)} 點 ≥ 方案費 ${fmtPts(j.roi.fee)} 點`
