@@ -184,7 +184,7 @@ module.exports = async (req, res) => {
     if (action === "speed") {
       const arr = await store.getSpeed();
       const out = a.kind === "admin" ? arr : arr.filter((e) => e.u === (a.user ? a.user.token : ""));
-      return sendJson(res, 200, { ok: true, points: out.slice(-60) });
+      return sendJson(res, 200, { ok: true, points: out.slice(-300) });   // 圖表最多載300點
     }
 
     // ── 我的 API 金鑰（一帳號多把子金鑰，同錢包同額度；主金鑰=帳號token不可刪）──
@@ -244,18 +244,46 @@ module.exports = async (req, res) => {
       return sendJson(res, 200, { ok: true, kind: a.kind, user: cleanUser(userObj.token, userObj), event });
     }
 
-    // ── 用量 ──
+    // ── 用量（+ mstat 每模型：7天 tokens/請求 · 目前RPM · 平均t/s）──
     if (action === "usage") {
       const days = url.searchParams.get("days") || body.days;
       const all = await store.getUsage(days);
       const qToken = url.searchParams.get("token") || body.token;
-      if (a.kind === "admin" && qToken) {
-        // admin 看指定帳號
-        const mine = (all || []).map((d) => ({ day: d.day, ...(d.data[qToken] ? d.data[qToken] : { tokens: 0, reqs: 0, models: {} }) }));
-        return sendJson(res, 200, { ok: true, usage: mine });
+      const cnt = (mm) => { const o = {}; for (const [m, v] of Object.entries(mm || {})) o[m] = typeof v === "number" ? v : (v && v.r) || 0; return o; };
+      const wantAgg = a.kind === "admin" && !qToken;
+      const scopeTok = wantAgg ? null : (qToken || (a.user && a.user.token) || null);
+      // ① 7天 tokens/請求（per model，含舊格式相容）
+      const ms = {};
+      for (const d of all || []) {
+        if (!d.data) continue;
+        const ents = wantAgg ? Object.values(d.data) : (scopeTok && d.data[scopeTok] ? [d.data[scopeTok]] : []);
+        for (const ent of ents) for (const [m, v] of Object.entries(ent.models || {})) {
+          const o = ms[m] || (ms[m] = { tk: 0, r: 0, rpm: 0, ts: 0, tn: 0 });
+          if (typeof v === "number") o.r += v; else { o.r += (v && v.r) || 0; o.tk += (v && v.tk) || 0; }
+        }
       }
-      if (a.kind === "admin" && !qToken) {
-        // admin 看全站：按天彙總
+      // ② 目前RPM + 平均t/s（速度環；admin看全站、其餘看自己）
+      try {
+        let spd = await store.getSpeed();
+        if (!wantAgg) spd = spd.filter((e) => e.u === scopeTok);
+        const cut = Date.now() - 60000;
+        for (const e of spd) {
+          const o = ms[e.model] || (ms[e.model] = { tk: 0, r: 0, rpm: 0, ts: 0, tn: 0 });
+          if (e.t >= cut) o.rpm += 1;
+          o.ts += Number(e.tps) || 0; o.tn += 1;
+        }
+      } catch { /* 速度環讀失敗不擋 */ }
+      const mstat = Object.entries(ms).map(([model, o]) => ({
+        model, tokens: o.tk, reqs: o.r, rpm: o.rpm,
+        tps: o.tn ? Math.round((o.ts / o.tn) * 10) / 10 : 0,
+      })).sort((x, y) => y.tokens - x.tokens || y.reqs - x.reqs);
+
+      if (a.kind === "admin" && qToken) {
+        const mine = (all || []).map((d) => { const e = d.data[qToken];
+          return { day: d.day, ...(e ? { ...e, models: cnt(e.models) } : { tokens: 0, reqs: 0, models: {} }) }; });
+        return sendJson(res, 200, { ok: true, usage: mine, mstat });
+      }
+      if (a.kind === "admin") {
         const agg = (all || []).map((d) => {
           let tokens = 0, reqs = 0;
           const users = Object.keys(d.data || {});
@@ -264,15 +292,18 @@ module.exports = async (req, res) => {
             const e = d.data[tk] || {};
             tokens += e.tokens || 0;
             reqs += e.reqs || 0;
-            for (const [m, n] of Object.entries(e.models || {})) models[m] = (models[m] || 0) + n;
+            for (const [m, v] of Object.entries(e.models || {})) {
+              models[m] = (models[m] || 0) + (typeof v === "number" ? v : (v && v.r) || 0);
+            }
           }
           return { day: d.day, tokens, reqs, users: users.length, models };
         });
-        return sendJson(res, 200, { ok: true, usage: agg });
+        return sendJson(res, 200, { ok: true, usage: agg, mstat });
       }
-      if (!a.user) return sendJson(res, 200, { ok: true, usage: [] });
-      const mine = (all || []).map((d) => ({ day: d.day, ...(d.data[a.user.token] ? d.data[a.user.token] : { tokens: 0, reqs: 0, models: {} }) }));
-      return sendJson(res, 200, { ok: true, usage: mine });
+      if (!a.user) return sendJson(res, 200, { ok: true, usage: [], mstat: [] });
+      const mine = (all || []).map((d) => { const e = d.data[a.user.token];
+        return { day: d.day, ...(e ? { ...e, models: cnt(e.models) } : { tokens: 0, reqs: 0, models: {} }) }; });
+      return sendJson(res, 200, { ok: true, usage: mine, mstat });
     }
 
     // ── 兌換邀請碼（加額度；需登入 user）──
