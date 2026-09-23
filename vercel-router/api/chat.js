@@ -175,7 +175,7 @@ module.exports = async (req, res) => {
               const users = (await store.getUsers()) || {};
               const u = users[caller.user.token];
               if (u && u.credits !== -1) {
-                const cost = estimateCost(body, "");
+                const cost = Math.ceil(estimateCost(body, "") * store.priceFor(await store.getPricing(), model));
                 u.credits = Math.max(0, (Number(u.credits) || 0) - cost);
                 u.usedTokens = (Number(u.usedTokens) || 0) + cost;
                 await store.setUsers(users);
@@ -199,7 +199,7 @@ module.exports = async (req, res) => {
         }
 
         const text = await upstream.text();
-        const cost = estimateCost(body, text);
+        const cost = Math.ceil(estimateCost(body, text) * store.priceFor(await store.getPricing(), model));
         // 先扣點再 end（header 必須在 end 之前設，否則發不出去）
         if (caller.kind === "user" && caller.user.credits !== -1) {
           try {

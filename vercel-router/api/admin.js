@@ -258,6 +258,30 @@ module.exports = async (req, res) => {
       return sendJson(res, 200, { ok: true });
     }
 
+    // ── 計費表（模型倍率；扣點 = tokens × 倍率）──
+    if (action === "pricing") {
+      const pricing = await store.getPricing();
+      return sendJson(res, 200, { ok: true, pricing, defaults: store.DEFAULT_PRICING });
+    }
+    if (action === "pricing.set") {
+      const p = body.pricing || {};
+      const clean = {};
+      for (const [m, mult] of Object.entries(p)) {
+        const v = Number(mult);
+        if (typeof m !== "string" || !m || !Number.isFinite(v) || v <= 0 || v > 100) {
+          return sendJson(res, 400, { ok: false, error: { message: `倍率不合法: ${m}=${mult}（需 0~100）` } });
+        }
+        clean[m] = v;
+      }
+      const cur = await store.getPricing();
+      await store.setPricing({ ...cur, ...clean });
+      return sendJson(res, 200, { ok: true, pricing: await store.getPricing() });
+    }
+    if (action === "pricing.reset") {
+      await store.setPricing({ ...store.DEFAULT_PRICING });
+      return sendJson(res, 200, { ok: true, pricing: await store.getPricing() });
+    }
+
     return sendJson(res, 400, { ok: false, error: { message: "未知 action: " + action } });
   } catch (e) {
     return sendJson(res, 500, { ok: false, error: { message: String((e && e.message) || e) } });

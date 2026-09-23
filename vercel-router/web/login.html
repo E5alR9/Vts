@@ -84,7 +84,9 @@ async function doReg(){
   try{
     const j = await api({action:"register", name, password});
     localStorage.setItem("gr_session", j.session);
-    $("okmsg").textContent = "註冊成功！API token（只顯示這一次）："+j.token+"（初始 0 點，請聯繫管理員充值）";
+    $("okmsg").innerHTML = "註冊成功！API token（只顯示這一次，請複製）：<br><code style=\"user-select:all\">"
+      + String(j.token||"").replace(/</g,"&lt;") + "</code><br>初始 0 點，請聯繫管理員充值。3 秒後進個人頁…";
+    setTimeout(()=>location.href="/me", 3000);
   }catch(e){ $("msg").textContent = e.message; }
   $("btnReg").disabled = false;
 }

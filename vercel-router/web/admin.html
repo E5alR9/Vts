@@ -112,6 +112,16 @@ td.code{font-family:Consolas,monospace;word-break:break-all}
     <tbody id="keyRows"><tr><td colspan="5" class="muted">尚未載入</td></tr></tbody></table>
   </section>
 
+  <section id="secPricing" style="grid-column:span 12">
+    <h2>💰 計費表 <small>扣點 = tokens × 倍率；改完立即生效</small></h2>
+    <table><thead><tr><th>模型</th><th>倍率</th><th>說明</th></tr></thead>
+    <tbody id="priceRows"><tr><td colspan="3" class="muted">載入中…</td></tr></tbody></table>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="primary" onclick="savePricing()">💾 儲存倍率</button>
+      <button onclick="resetPricing()">恢復預設</button>
+    </div>
+  </section>
+
   <section id="secUsers">
     <h2>👥 帳號與點數 <small>token 建好只顯示一次；點數 -1 = 無限</small></h2>
     <div class="grid2">
@@ -166,6 +176,35 @@ async function api(action, body, method){
   if(!r.ok) throw new Error((j&&(j.error&&j.error.message))||("HTTP "+r.status));
   return j;
 }
+/* ── 計費表 ── */
+async function loadPricing(){
+  try{
+    const j = await api("pricing");
+    const p = j.pricing || {};
+    $("priceRows").innerHTML = Object.entries(p).map(([m, mult])=>`<tr>
+      <td class="code">${esc(m)}</td>
+      <td><input type="number" data-pmodel="${esc(m)}" value="${esc(mult)}" min="0.1" max="100" step="0.1" style="max-width:120px"></td>
+      <td class="muted">${mult===1?"基準價":mult<1?"便宜 "+mult+"×":"貴 "+mult+"×"}</td>
+    </tr>`).join("");
+  }catch(e){ $("priceRows").innerHTML = `<tr><td colspan="3" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
+}
+async function savePricing(){
+  const p = {};
+  document.querySelectorAll("[data-pmodel]").forEach(el=>{ p[el.dataset.pmodel] = Number(el.value); });
+  try{ await api("pricing.set",{pricing:p}); toast("計費表已更新，立即生效"); loadPricing(); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
+async function resetPricing(){
+  if(!confirm("恢復預設倍率？")) return;
+  try{
+    const r = await fetch("/api/admin",{method:"POST",
+      headers:{"Content-Type":"application/json",Authorization:"Bearer "+token()},
+      body:JSON.stringify({action:"pricing.reset"})});
+    const j = await r.json();
+    if(!r.ok) throw new Error((j.error&&j.error.message)||r.status);
+    toast("已恢復預設"); loadPricing();
+  }catch(e){ toast("失敗："+e.message, true); }
+}
 async function loadAll(){
   if(!token()){ toast("請先登入（貼 ADMIN_TOKEN）", true); return; }
   try{
@@ -183,7 +222,7 @@ async function loadAll(){
     ].map(([k,v])=>`<div>${esc(k)}</div><div>${esc(v)}</div>`).join("");
     renderKeys(keys); renderUsers(users.users||[]);
     renderDash(st, users.users||[]);
-    loadUsage(); loadInvites();
+    loadUsage(); loadInvites(); loadPricing();
   }catch(e){ $("kvdot").className="dot"; $("kvtext").textContent="連線失敗";
     toast("載入失敗："+e.message, true); }
 }

@@ -139,6 +139,37 @@ function newInviteCode() {
   return s.slice(0, 4) + "-" + s.slice(4);
 }
 
+/** 計費表：gr:pricing JSON {model: multiplier}；沒有就回預設 */
+const DEFAULT_PRICING = {
+  "qwen/qwen3.8-27b": 1,
+  "openai/gpt-oss-20b": 1,
+  "openai/gpt-oss-120b": 3,
+  "allam-2-7b": 0.5,
+};
+
+async function getPricing() {
+  const k = kv();
+  if (!k) return { ...DEFAULT_PRICING };
+  try {
+    const raw = await k.get("gr:pricing");
+    const p = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {};
+    return { ...DEFAULT_PRICING, ...p };
+  } catch {
+    return { ...DEFAULT_PRICING };
+  }
+}
+
+async function setPricing(p) {
+  const k = kv();
+  if (!k) throw new Error("NO_KV");
+  await k.set("gr:pricing", JSON.stringify(p));
+}
+
+function priceFor(pricing, model) {
+  const m = Number(pricing[model]);
+  return Number.isFinite(m) && m > 0 ? m : 1;
+}
+
 /** 用量記錄：gr:usage:{yyyymmdd} JSON {token: {tokens, reqs, models:{m:n}}} + user.usedTokens 累加 */
 function dayKey(d) {
   const t = d || new Date();
@@ -184,4 +215,4 @@ async function getUsage(days) {
   return out;
 }
 
-module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, getInvites, setInvites, newInviteCode };
+module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING };
