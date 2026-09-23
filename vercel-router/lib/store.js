@@ -426,7 +426,7 @@ const MODEL_PRICES = {
   "qwen/qwen3.8-27b":    { input: 0.80,  output: 4.0,  note: "主力對話" },
   "openai/gpt-oss-120b": { input: 0.15,  output: 0.60, note: "推理較強" },
   "openai/gpt-oss-20b":  { input: 0.075, output: 0.30, note: "計費基準" },
-  "allam-2-7b":          { input: 0,     output: 0,    note: "免費（docs 未列）" },
+  "allam-2-7b":          { input: 0,     output: 0,    note: "免費（$0 計價）" },
   // 安全模型（3）
   "openai/gpt-oss-safeguard-20b": { input: 0.075, output: 0.30, note: "安全模型" },
   "meta-llama/llama-prompt-guard-2-22m": { input: 0.03, output: 0.03, note: "安全審查" },
@@ -445,7 +445,7 @@ const MODEL_SPECS = {
   "qwen/qwen3.8-27b":    { tps: 450,  limits: "250K TPM · 1K RPM", ctx: 131042, maxOut: 16384,  file: "20 MB", note: "主力對話" },
   "openai/gpt-oss-120b": { tps: 500,  limits: "250K TPM · 1K RPM", ctx: 131072, maxOut: 65536,  file: "-", note: "推理較強" },
   "openai/gpt-oss-20b":  { tps: 1000, limits: "250K TPM · 1K RPM", ctx: 131072, maxOut: 65536,  file: "-", note: "最快 · 計費基準" },
-  "allam-2-7b":          { tps: null, limits: "—",                ctx: null,   maxOut: null,   file: "-", note: "官方表未列（免費）" },
+  "allam-2-7b":          { tps: null, limits: "—",                ctx: null,   maxOut: null,   file: "-", note: "免費 · 官方未公布規格" },
   "openai/gpt-oss-safeguard-20b": { tps: 1000, limits: "150K TPM · 1K RPM", ctx: 131072, maxOut: 65536, file: "-", note: "安全模型" },
   "meta-llama/llama-prompt-guard-2-22m": { tps: null, limits: "30K TPM · 100 RPM", ctx: 512, maxOut: 512, file: "-", note: "安全審查 · $0.03" },
   "meta-llama/llama-prompt-guard-2-86m": { tps: null, limits: "30K TPM · 100 RPM", ctx: 512, maxOut: 512, file: "-", note: "安全審查 · $0.04" },
