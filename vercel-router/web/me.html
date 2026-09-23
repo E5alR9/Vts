@@ -94,7 +94,7 @@
     <div class="kv">
       <div>你的金鑰</div><div><code id="apiKey">載入中…</code> <button onclick="cpText('apiKey','已複製金鑰 ✅')">複製</button></div>
       <div>端點</div><div><code>https://vercel-router-khaki.vercel.app/v1</code></div>
-      <div>可用模型</div><div class="muted">qwen3.8-27b · qwen3-32b · gpt-oss-120b/20b · allam-7b（依梯隊自動降級）</div>
+      <div>可用模型</div><div class="muted">qwen3.8-27b · gpt-oss-120b · gpt-oss-20b · allam-2-7b（依梯隊自動降級）</div>
     </div>
     <h2 style="margin-top:16px">🐍 Python</h2>
     <pre id="snipPy"></pre><button onclick="cpText('snipPy','已複製 Python 範例 ✅')">複製</button>
@@ -482,7 +482,7 @@ async function loadPricing(){
     const pr = j.prices || {};
     $("priceRows").innerHTML = Object.entries(p).map(([m, mult])=>{
       const o = pr[m];
-      const price = o ? `$${o.input} / $${o.output}` : '<span class="muted">未列</span>';
+      const price = o ? (o.unit ? esc(o.unit) : `$${o.input} / $${o.output}`) : '<span class="muted">未列</span>';
       return `<tr>
       <td class="code">${esc(m)}</td>
       <td class="muted">${price}</td>
@@ -981,7 +981,7 @@ async function loadPrices(){
     const models = [...priced, ...rest];
     $("pricePubRows").innerHTML = models.map(m=>{
       const o = pr[m], x = mult[m];
-      const price = o ? `$${o.input} / $${o.output}` : '<span class="muted">未列 → 按基準 $0.075計</span>';
+      const price = o ? (o.unit ? esc(o.unit) : `$${o.input} / $${o.output}`) : '<span class="muted">未列 → 按基準 $0.075計</span>';
       const chip = `×${x === undefined ? 1 : x}`;
       const cls = (x === undefined || x === 1) ? "ok" : (x > 1 ? "warn" : "ok");
       return `<tr>
@@ -1011,7 +1011,7 @@ async function loadPlayModels(){
   try{
     const r = await fetch("/v1/models", { headers:{Authorization:"Bearer "+token()} });
     const j = await r.json();
-    const ids = (j.data||[]).map(m=>m.id).filter(id=>!/whisper|tts|audio|playai/i.test(id));
+    const ids = (j.data||[]).map(m=>m.id).filter(id=>!/whisper|tts|audio|playai|orpheus/i.test(id));
     if(!ids.length) return;
     const keep = $("playModel").value;
     $("playModel").innerHTML = ids.map(id=>`<option value="${esc(id)}">${esc(id)}</option>`).join("");

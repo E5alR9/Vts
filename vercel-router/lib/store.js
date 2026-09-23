@@ -181,26 +181,21 @@ function newInviteCode() {
 const POINTS_PER_USD = Math.max(1, Number(process.env.POINTS_PER_USD) || 10000000);
 
 /** 計費表 = 促銷係數（1 = 官方價直轉；<1 折扣、>1 加價）
- *  v2 版（__v 標記）：舊的 10/2/1/0.5 倍率表偵測到 __v 不符 → 自動回到預設 ×1 */
+ *  版本標記 __v：不符即作廢回預設 ×1（v3 = 對齊 docs 現行11模型；涵蓋舊10/2/1倍率表） */
 const DEFAULT_PRICING = {
   "qwen/qwen3.8-27b": 1,
-  "qwen/qwen3-32b": 1,
   "openai/gpt-oss-120b": 1,
   "openai/gpt-oss-20b": 1,
   "allam-2-7b": 1,
-  "llama-3.3-70b-versatile": 1,
-  "llama-3.1-8b-instant": 1,
-  "meta-llama/llama-4-scout-17b-16e-instruct": 1,
-  "meta-llama/llama-4-maverick-17b-128e-instruct": 1,
-  "deepseek-r1-distill-llama-70b": 1,
-  "gemma2-9b-it": 1,
-  "moonshotai/kimi-k2-instruct": 1,
-  "llama-guard-3-8b": 1,
-  "qwen/qwen3-235b-a22b": 1,
-  "compound-beta": 1,
-  "compound-beta-mini": 1,
+  "openai/gpt-oss-safeguard-20b": 1,
+  "meta-llama/llama-prompt-guard-2-22m": 1,
+  "meta-llama/llama-prompt-guard-2-86m": 1,
+  "whisper-large-v3": 1,
+  "whisper-large-v3-turbo": 1,
+  "canopylabs/orpheus-v1-english": 1,
+  "canopylabs/orpheus-arabic-saudi": 1,
 };
-const PRICING_VERSION = 2;
+const PRICING_VERSION = 3;
 
 async function getPricing() {
   const k = kv();
@@ -424,24 +419,24 @@ async function getKeyStat() {
 
 /** 模型官方參考價（$/1M tokens，input/output；以 Groq 公告為準）
  *  扣點規則：站內實付 = total_tokens × 倍率（倍率見 DEFAULT_PRICING） */
+/** 模型官方價（對齊 console.groq.com/docs/models 現行目錄 = 你的帳號11模型，一模一樣、無未列）
+ *  非 token 計價模型（STT/TTS）用 unit 顯示、input/output=0（聊天端點打不到它們） */
 const MODEL_PRICES = {
-  "qwen/qwen3.8-27b":    { input: 0.80,  output: 4.0,  note: "主力對話（官方 $0.8/$4.0）" },
-  "qwen/qwen3-32b":      { input: 0.60,  output: 2.4,  note: "備援梯隊" },
-  "openai/gpt-oss-120b": { input: 0.15,  output: 0.6,  note: "推理較強" },
-  "openai/gpt-oss-20b":  { input: 0.075, output: 0.3,  note: "計費基準（1x）" },
-  "allam-2-7b":          { input: 0,     output: 0,    note: "未定價（0 計）" },
-  // ── 全模型中轉：Groq 常用目錄（價格為參考，未列模型按基準價計）──
-  "llama-3.3-70b-versatile": { input: 0.59, output: 0.79, note: "Llama3.3 70B 參考" },
-  "llama-3.1-8b-instant":    { input: 0.05, output: 0.08, note: "Llama3.1 8B 速 參考" },
-  "meta-llama/llama-4-scout-17b-16e-instruct":  { input: 0.11, output: 0.34, note: "Llama4 Scout 參考" },
-  "meta-llama/llama-4-maverick-17b-128e-instruct": { input: 0.20, output: 0.60, note: "Llama4 Maverick 參考" },
-  "deepseek-r1-distill-llama-70b": { input: 0.75, output: 0.99, note: "DeepSeek-R1 蒸餾 參考" },
-  "gemma2-9b-it":         { input: 0.20, output: 0.20, note: "Gemma2 9B 參考" },
-  "moonshotai/kimi-k2-instruct": { input: 1.00, output: 3.00, note: "Kimi K2 參考" },
-  "llama-guard-3-8b":     { input: 0.20, output: 0.20, note: "安全審查 參考" },
-  "qwen/qwen3-235b-a22b": { input: 0.20, output: 0.60, note: "Qwen3 235B 參考" },
-  "compound-beta":        { input: 0.50, output: 0.80, note: "Groq 自動路由 參考" },
-  "compound-beta-mini":   { input: 0.10, output: 0.50, note: "自動路由 mini 參考" },
+  // 對話（4）
+  "qwen/qwen3.8-27b":    { input: 0.80,  output: 4.0,  note: "主力對話" },
+  "openai/gpt-oss-120b": { input: 0.15,  output: 0.60, note: "推理較強" },
+  "openai/gpt-oss-20b":  { input: 0.075, output: 0.30, note: "計費基準" },
+  "allam-2-7b":          { input: 0,     output: 0,    note: "免費（docs 未列）" },
+  // 安全模型（3）
+  "openai/gpt-oss-safeguard-20b": { input: 0.075, output: 0.30, note: "安全模型" },
+  "meta-llama/llama-prompt-guard-2-22m": { input: 0.03, output: 0.03, note: "安全審查" },
+  "meta-llama/llama-prompt-guard-2-86m": { input: 0.04, output: 0.04, note: "安全審查" },
+  // STT（2 · 按小時）
+  "whisper-large-v3":       { input: 0, output: 0, unit: "$0.111 / 時", note: "語音轉文字" },
+  "whisper-large-v3-turbo": { input: 0, output: 0, unit: "$0.04 / 時",  note: "語音轉文字 · 快" },
+  // TTS（2 · 按字元）
+  "canopylabs/orpheus-v1-english":   { input: 0, output: 0, unit: "$22 / 1M 字元", note: "文字轉語音" },
+  "canopylabs/orpheus-arabic-saudi": { input: 0, output: 0, unit: "$40 / 1M 字元", note: "文字轉語音" },
 };
 
 /** 模型規格表（Groq 官方 console 資料：速度 T/s、開發層限流、上下文、最長輸出、檔案上限）
