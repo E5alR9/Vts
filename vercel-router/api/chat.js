@@ -43,12 +43,31 @@ function loadLadder() {
   return list.length ? list : DEFAULT_LADDER;
 }
 
-/** 呼叫端沒設輸出上限 → 補上該模型官方 maxOut（Groq 省略欄位時會自己砍到2048）
- *  有設就照呼叫端的；MODEL_SPECS 沒登錄的模型不補（維持上游預設，避免亂填被400） */
+/** 未指定輸出上限 → 補上「模型真上限」給滿。優先序：
+ *  1) 呼叫端有設 → 尊重
+ *  2) Groq /v1/models 權威值 max_completion_tokens（ensureLimits 抓一次，含 allam 等未登錄模型）
+ *  3) MODEL_SPECS 靜態表兜底（上游抓不到時）
+ *  都沒有 → 省略（Groq 省略時自己砍2048，所以前三關盡量別漏） */
+let LIMITS = null;   // {modelId: maxCompletionTokens} — warm instance 抓一次
+async function ensureLimits() {
+  if (LIMITS) return;
+  try {
+    const keys = (await store.allKeys()).map((k) => k.key);
+    if (!keys.length) return;
+    const r = await fetch(MODELS_URL, { headers: { Authorization: `Bearer ${keys[0]}` } });
+    const j = await r.json();
+    const map = {};
+    for (const m of (j.data || [])) {
+      const lim = m.max_completion_tokens || m.max_output_length;
+      if (lim) map[m.id] = lim;
+    }
+    if (Object.keys(map).length) LIMITS = map;
+  } catch { /* 抓失敗 → 走 MODEL_SPECS 兜底，下次請求再試 */ }
+}
 function withMax(b, model) {
   if (b.max_tokens !== undefined) return { ...b, model };
-  const sp = store.MODEL_SPECS[model];
-  return (sp && sp.maxOut) ? { ...b, model, max_tokens: sp.maxOut } : { ...b, model };
+  const lim = (LIMITS && LIMITS[model]) || (store.MODEL_SPECS[model] || {}).maxOut;
+  return lim ? { ...b, model, max_tokens: lim } : { ...b, model };
 }
 
 function isCooling(i) {
@@ -158,6 +177,8 @@ module.exports = async (req, res) => {
   const wantStream = body.stream === true;
 
   let lastError = { status: 502, payload: { error: { message: "all keys/models exhausted" } } };
+
+  await ensureLimits();   // 上游模型上限表（每 warm instance 抓一次，失敗走靜態兜底）
 
   for (const model of ladder) {
     let modelDead = false;
