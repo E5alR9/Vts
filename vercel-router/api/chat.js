@@ -165,21 +165,22 @@ module.exports = async (req, res) => {
         res.setHeader("x-router-key-index", String(idx));
         res.setHeader("x-router-key-count", String(keys.length));
 
-        // user 帳號扣點（admin/legacy 不扣；-1 無限不扣）
-        async function charge(cost) {
-          if (caller.kind !== "user" || caller.user.credits === -1) return;
-          try {
-            const users = (await store.getUsers()) || {};
-            const u = users[caller.user.token];
-            if (u && u.credits !== -1) {
-              u.credits = Math.max(0, (Number(u.credits) || 0) - cost);
-              await store.setUsers(users);
-              res.setHeader("x-credits-left", String(u.credits));
-            }
-          } catch { /* 扣點失敗不影響已生成的回應 */ }
-        }
+        // user 帳號扣點（admin/legacy 不扣；-1 無限不扣）——見下方各分支內聯實作
+        // （扣點必須在 res.end() 之前完成，否則 x-credits-left 發不出去）
 
         if (wantStream) {
+          // 串流按請求字數預估先扣（header 要在 end 前設）
+          if (caller.kind === "user" && caller.user.credits !== -1) {
+            try {
+              const users = (await store.getUsers()) || {};
+              const u = users[caller.user.token];
+              if (u && u.credits !== -1) {
+                u.credits = Math.max(0, (Number(u.credits) || 0) - estimateCost(body, ""));
+                await store.setUsers(users);
+                res.setHeader("x-credits-left", String(u.credits));
+              }
+            } catch { /* 忽略 */ }
+          }
           res.statusCode = 200;
           res.setHeader("Content-Type", upstream.headers.get("content-type") || "text/event-stream");
           res.setHeader("Cache-Control", "no-cache");
@@ -196,10 +197,22 @@ module.exports = async (req, res) => {
         }
 
         const text = await upstream.text();
+        const cost = estimateCost(body, text);
+        // 先扣點再 end（header 必須在 end 之前設，否則發不出去）
+        if (caller.kind === "user" && caller.user.credits !== -1) {
+          try {
+            const users = (await store.getUsers()) || {};
+            const u = users[caller.user.token];
+            if (u && u.credits !== -1) {
+              u.credits = Math.max(0, (Number(u.credits) || 0) - cost);
+              await store.setUsers(users);
+              res.setHeader("x-credits-left", String(u.credits));
+            }
+          } catch { /* 扣點失敗不影響已生成的回應 */ }
+        }
         res.statusCode = 200;
         res.setHeader("Content-Type", "application/json; charset=utf-8");
         res.end(text);
-        await charge(estimateCost(body, text));
         return;
       }
 
