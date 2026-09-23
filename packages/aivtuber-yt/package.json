@@ -1,20 +1,29 @@
-{
-  "name": "aivtuber-yt",
-  "version": "0.1.0",
-  "description": "YouTube Live chat for AI VTubers: resolve channel to live stream, poll chat messages, no API key needed",
-  "main": "src/index.js",
-  "bin": {
-    "aivtuber-yt": "bin/cli.js"
-  },
-  "engines": { "node": ">=18" },
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/E5alR9/Vts.git",
-    "directory": "packages/aivtuber-yt"
-  },
-  "keywords": ["youtube", "live", "chat", "vtuber", "ai-vtuber", "livestream"],
-  "scripts": {
-    "test": "node --test test/"
-  }
+﻿{
+    "name":  "aivtuber-yt",
+    "version":  "0.1.1",
+    "description":  "YouTube Live chat for AI VTubers: resolve channel to live stream, poll chat messages, no API key needed",
+    "main":  "src/index.js",
+    "bin":  {
+                "aivtuber-yt":  "bin/cli.js"
+            },
+    "engines":  {
+                    "node":  "\u003e=18"
+                },
+    "license":  "MIT",
+    "repository":  {
+                       "type":  "git",
+                       "url":  "https://github.com/E5alR9/Vts.git",
+                       "directory":  "packages/aivtuber-yt"
+                   },
+    "keywords":  [
+                     "youtube",
+                     "live",
+                     "chat",
+                     "vtuber",
+                     "ai-vtuber",
+                     "livestream"
+                 ],
+    "scripts":  {
+                    "test":  "node --test test/"
+                }
 }
