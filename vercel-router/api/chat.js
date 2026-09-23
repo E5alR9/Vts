@@ -217,10 +217,12 @@ module.exports = async (req, res) => {
                 const cost = store.costFor(model, est.pt, est.ct, await store.getPricing());
                 u.credits = Math.max(0, (Number(u.credits) || 0) - cost);
                 u.usedTokens = (Number(u.usedTokens) || 0) + total;
+                if (caller.sub) { const kk = (u.keys || []).find((x) => x.id === caller.sub.id); if (kk) kk.lastUsed = Date.now(); }
                 await store.setUsers(users);
                 res.setHeader("x-credits-left", String(u.credits));
                 await store.recordUsage(caller.user.token, model, total, cost);
                 await store.logRequest({ user: caller.user.name || caller.user.token.slice(0, 12),
+                  key: caller.sub ? caller.sub.name : undefined,
                   model, tokens: total, cost });
               }
             } catch { /* 忽略 */ }
@@ -261,10 +263,12 @@ module.exports = async (req, res) => {
             if (u && u.credits !== -1) {
               u.credits = Math.max(0, (Number(u.credits) || 0) - cost);
               u.usedTokens = (Number(u.usedTokens) || 0) + realTokens;
+              if (caller.sub) { const kk = (u.keys || []).find((x) => x.id === caller.sub.id); if (kk) kk.lastUsed = Date.now(); }
               await store.setUsers(users);
               res.setHeader("x-credits-left", String(u.credits));
               await store.recordUsage(caller.user.token, model, realTokens, cost);
               await store.logRequest({ user: caller.user.name || caller.user.token.slice(0, 12),
+                key: caller.sub ? caller.sub.name : undefined,
                 model, tokens: realTokens, cost });
             }
           } catch { /* 扣點失敗不影響已生成的回應 */ }

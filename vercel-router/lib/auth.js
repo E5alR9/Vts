@@ -57,6 +57,18 @@ async function auth(req) {
     if (u.disabled) return { ok: false, kind: "none", reason: "帳號已停用" };
     return { ok: true, kind: u.role === "admin" ? "admin" : "user", user: { token: tok, ...u } };
   }
+  // 子金鑰（一帳號多把 ak_…）：掃各帳號的 keys[].secret → 回到擁有者的 token 計費
+  if (users) {
+    for (const [ownerTok, u] of Object.entries(users)) {
+      const k = (u.keys || []).find((x) => x.secret === tok);
+      if (k) {
+        if (u.disabled) return { ok: false, kind: "none", reason: "帳號已停用" };
+        if (k.disabled) return { ok: false, kind: "none", reason: "這把金鑰已停用" };
+        return { ok: true, kind: u.role === "admin" ? "admin" : "user",
+          user: { token: ownerTok, ...u }, sub: { id: k.id, name: k.name } };
+      }
+    }
+  }
   const legacy = process.env.ROUTER_TOKEN;
   if (legacy && tok === legacy) return { ok: true, kind: "legacy" };
   return { ok: false, kind: "none" };

@@ -96,6 +96,14 @@
       <div>端點</div><div><code>https://vercel-router-khaki.vercel.app/v1</code></div>
       <div>可用模型</div><div class="muted">qwen3.8-27b · gpt-oss-120b · gpt-oss-20b · allam-2-7b（依梯隊自動降級）</div>
     </div>
+    <h2 style="margin-top:16px">🗝️ 我的 API 金鑰（可申請多把） <small>同錢包同額度 · 隨時可回來複製 · 最多20把</small></h2>
+    <div style="display:flex;gap:8px">
+      <input type="text" id="newAkName" placeholder="金鑰名稱（例：VTuber 主機 / 測試筆電）" style="flex:1" maxlength="24">
+      <button class="primary" onclick="createAk()">＋ 申請金鑰</button>
+    </div>
+    <table><thead><tr><th>名稱</th><th>金鑰</th><th>狀態</th><th>上次使用</th><th>操作</th></tr></thead>
+    <tbody id="akRows"><tr><td colspan="5" class="muted">載入中…</td></tr></tbody></table>
+    <div class="muted" style="margin-top:6px">上方「你的金鑰」＝主金鑰（帳號 token，不可刪除）；這裡申請的是同錢包子金鑰，寫法完全一樣、換 api_key 就能用。停用某把＝立刻讓對應機器斷線、不影響其他把。</div>
     <h2 style="margin-top:16px">🐍 Python</h2>
     <pre id="snipPy"></pre><button onclick="cpText('snipPy','已複製 Python 範例 ✅')">複製</button>
     <h2 style="margin-top:16px">🌐 JavaScript</h2>
@@ -277,7 +285,7 @@ function toast(msg, err){ const d=document.createElement("div"); d.textContent=m
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
 /* ── 身分 ── */
-let ME = null, IS_ADMIN = false, CHART_ROWS = [], SPEED_PTS = [];
+let ME = null, IS_ADMIN = false, CHART_ROWS = [], SPEED_PTS = [], AKS = [];
 function token(){
   return localStorage.getItem("gr_session") || localStorage.getItem("gr_admin_token") || "";
 }
@@ -332,6 +340,46 @@ async function redeem(){
 async function cpText(id, msg){
   try{ await navigator.clipboard.writeText($(id).textContent); toast(msg); }
   catch{ toast("複製失敗，請手動選取", true); }
+}
+
+/* ── 我的 API 金鑰（多把子金鑰）── */
+function renderAk(){
+  $("akRows").innerHTML = AKS.map((k,i)=>`<tr>
+    <td><b>${esc(k.name)}</b><br><span class="muted code">${esc(k.id)}</span></td>
+    <td><code id="aksec${i}">${esc(k.secret)}</code> <button onclick="cpText('aksec${i}','已複製金鑰 ✅')">複製</button></td>
+    <td>${k.disabled?'<span class="chip bad">停用</span>':'<span class="chip ok">啟用</span>'}</td>
+    <td class="muted">${k.lastUsed ? new Date(k.lastUsed).toLocaleString() : "從未"}</td>
+    <td><div class="rowbtns">
+      <button onclick="toggleAk('${esc(k.id)}',${k.disabled?"false":"true"})">${k.disabled?"啟用":"停用"}</button>
+      <button class="danger" onclick="deleteAk('${esc(k.id)}')">刪除</button>
+    </div></td></tr>`).join("")
+    || '<tr><td colspan="5" class="muted">尚無子金鑰 · 輸入名稱按「＋申請金鑰」開一把</td></tr>';
+}
+async function createAk(){
+  const name = $("newAkName").value.trim();
+  if(!name) return toast("先填金鑰名稱", true);
+  try{
+    const j = await post({action:"ak.create", name});
+    if(!j.ok) throw new Error((j.error&&j.error.message)||"失敗");
+    AKS.push(j.key); $("newAkName").value = ""; renderAk();
+    toast(`已申請 ✅ ${j.key.name}：${j.key.secret}`);
+  }catch(e){ toast("失敗："+e.message, true); }
+}
+async function toggleAk(id, disabled){
+  try{
+    const j = await post({action:"ak.toggle", id, disabled});
+    if(!j.ok) throw new Error((j.error&&j.error.message)||"失敗");
+    const k = AKS.find(x=>x.id===id); if(k) k.disabled = j.disabled;
+    renderAk(); toast(j.disabled?"已停用（該把立刻失效）":"已啟用");
+  }catch(e){ toast("失敗："+e.message, true); }
+}
+async function deleteAk(id){
+  if(!confirm("確定刪除這把金鑰？用它的程式會立刻失效，且不可復原。")) return;
+  try{
+    const j = await post({action:"ak.delete", id});
+    if(!j.ok) throw new Error((j.error&&j.error.message)||"失敗");
+    AKS = AKS.filter(x=>x.id!==id); renderAk(); toast("已刪除");
+  }catch(e){ toast("失敗："+e.message, true); }
 }
 function renderKv(u){
   const credits = u.credits===-1 ? "無限" : u.credits;
@@ -645,7 +693,7 @@ async function loadLogs(){
     $("logRows").innerHTML = (j.logs||[]).map(e=>{
       const t = new Date(e.t||Date.now());
       const hh = [t.getHours(),t.getMinutes(),t.getSeconds()].map(n=>String(n).padStart(2,"0")).join(":");
-      return `<tr><td>${hh}</td><td>${esc(e.user||"")}</td><td class="code">${esc(String(e.model||"").split("/").pop())}</td><td>${esc(e.tokens||0)}</td></tr>`;
+      return `<tr><td>${hh}</td><td>${esc(e.user||"")}${e.key?` <span class="chip">${esc(e.key)}</span>`:""}</td><td class="code">${esc(String(e.model||"").split("/").pop())}</td><td>${esc(e.tokens||0)}</td></tr>`;
     }).join("") || '<tr><td colspan="4" class="muted">尚無請求</td></tr>';
   }catch(e){ $("logRows").innerHTML = `<tr><td colspan="4" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
 }
@@ -1046,6 +1094,8 @@ async function loadPlayModels(){
     setCredits(j.user.credits);
     if(j.user.token) fillSnippets(j.user.token); else $("apiKey").textContent = "無個人金鑰";
     CHECKIN = Array.isArray(j.user.checkinLog) ? j.user.checkinLog : [];
+    AKS = Array.isArray(j.user.apiKeys) ? j.user.apiKeys : [];
+    renderAk();
     // 活動橫幅
     if(j.event && j.event.enabled){
       const b = $("evtBanner");
@@ -1071,6 +1121,7 @@ async function loadPlayModels(){
     $("apiKey").textContent = "此登入無個人金鑰";
     $("stTokens").textContent = "–";
     $("stCredits").textContent = "–";
+    AKS = []; renderAk();
   }
   renderCal();
   loadPrices();   // 模型價格表 + 規格報表（兩種角色都載）

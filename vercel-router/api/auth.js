@@ -64,7 +64,10 @@ function cleanUser(token, u) {
     usedTokens: u.usedTokens || 0, disabled: !!u.disabled, createdAt: u.createdAt || "",
     checkinLog: healCheckinLog(u),
     myCode: u.myCode || "", refCount: u.refCount || 0, referredBy: u.referredBy || "",
-    plan: u.plan || "free" };
+    plan: u.plan || "free",
+    apiKeys: (Array.isArray(u.keys) ? u.keys : []).map((k) => ({
+      id: k.id, name: k.name, secret: k.secret, disabled: !!k.disabled,
+      createdAt: k.createdAt || "", lastUsed: k.lastUsed || 0 })) };
 }
 
 module.exports = async (req, res) => {
@@ -181,6 +184,38 @@ module.exports = async (req, res) => {
       const arr = await store.getSpeed();
       const out = a.kind === "admin" ? arr : arr.filter((e) => e.u === (a.user ? a.user.token : ""));
       return sendJson(res, 200, { ok: true, points: out.slice(-60) });
+    }
+
+    // ── 我的 API 金鑰（一帳號多把子金鑰，同錢包同額度；主金鑰=帳號token不可刪）──
+    if (action === "ak.create" || action === "ak.toggle" || action === "ak.delete") {
+      if (!a.user) return sendJson(res, 400, { ok: false, error: { message: "此身分不用 API 金鑰" } });
+      const users = (await store.getUsers()) || {};
+      const u = users[a.user.token];
+      if (!u || u.disabled) return sendJson(res, 403, { ok: false, error: { message: "帳號已停用" } });
+      u.keys = Array.isArray(u.keys) ? u.keys : [];
+      if (action === "ak.create") {
+        const name = String(body.name || "").trim().slice(0, 24);
+        if (!name) return sendJson(res, 400, { ok: false, error: { message: "金鑰名稱不可為空" } });
+        if (u.keys.length >= 20) {
+          return sendJson(res, 400, { ok: false, error: { message: "最多 20 把，先刪一把再說" } });
+        }
+        const ent = { id: "aki_" + require("crypto").randomBytes(5).toString("hex"),
+          name, secret: randomToken("ak"), disabled: false,
+          createdAt: new Date().toISOString() };
+        u.keys.push(ent);
+        await store.setUsers(users);
+        return sendJson(res, 200, { ok: true, key: ent });   // secret 這裡回一次（/me 也會帶）
+      }
+      const idx = u.keys.findIndex((k) => k.id === body.id);
+      if (idx < 0) return sendJson(res, 404, { ok: false, error: { message: "找不到這把金鑰" } });
+      if (action === "ak.toggle") {
+        u.keys[idx].disabled = body.disabled !== false;
+        await store.setUsers(users);
+        return sendJson(res, 200, { ok: true, disabled: u.keys[idx].disabled });
+      }
+      u.keys.splice(idx, 1);
+      await store.setUsers(users);
+      return sendJson(res, 200, { ok: true });
     }
 
     // ── 我的帳號 ──
