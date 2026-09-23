@@ -158,18 +158,26 @@ module.exports = async (req, res) => {
         return sendJson(res, 200, { ok: true, checked: false, credits: u.credits,
           message: "今天已簽到過，明天再來" });
       }
-      // 獎勵倍率 = 活動 × 方案（預留的活動/方案結構，預設都是 1）
-      let mult = 1;
-      try { const ev = store.activeEvent(await store.getEvent()); if (ev) mult *= Number(ev.mult) || 1; } catch {}
-      try { const plans = await store.getPlans(); mult *= Number((plans[u.plan || "free"] || {}).rewardMult) || 1; } catch {}
-      const rawAward = Number(process.env.CHECKIN_CREDITS);
-      const award = ((Number.isFinite(rawAward) && rawAward > 0) ? rawAward : 10) * mult;   // 預設 10 點/天（1點=US$1）；env 可設含小數
+      // 先入帳今天（含歷史修復），用更新後的日曆算連簽
       u.lastCheckin = today;
       u.checkinLog = [...healCheckinLog(u), today].slice(-90);
+      const streak = store.streakDays(u.checkinLog);
+      // 獎勵倍率 = 活動 × 方案 × 連簽（7天×1.5 / 14天×2 / 30天×3）
+      let fEvent = 1, fPlan = 1;
+      try { const ev = store.activeEvent(await store.getEvent()); if (ev) fEvent = Number(ev.mult) || 1; } catch {}
+      try { const plans = await store.getPlans(); fPlan = Number((plans[u.plan || "free"] || {}).rewardMult) || 1; } catch {}
+      const fStreak = store.streakMult(streak);
+      const mult = fEvent * fPlan * fStreak;
+      const rawAward = Number(process.env.CHECKIN_CREDITS);
+      const award = ((Number.isFinite(rawAward) && rawAward > 0) ? rawAward : 10) * mult;
       if (u.credits !== -1) u.credits = (Number(u.credits) || 0) + award;
       await store.setUsers(users);
-      return sendJson(res, 200, { ok: true, checked: true, award, credits: u.credits, mult,
-        message: `簽到成功 +${award} 點${mult > 1 ? `（×${mult} 加成）` : ""}` });
+      const bits = [`連續${streak}天`];
+      if (fEvent > 1) bits.push(`活動×${fEvent}`);
+      if (fPlan > 1) bits.push(`方案×${fPlan}`);
+      if (fStreak > 1) bits.push(`連簽×${fStreak}`);
+      return sendJson(res, 200, { ok: true, checked: true, award, credits: u.credits, mult, streak,
+        message: `簽到成功 +${award} 點（${bits.join(" · ")}）` });
     }
 
     // ── 模型價格表（任何登入身分可讀：官方參考價 × 站內倍率）──
@@ -328,7 +336,18 @@ module.exports = async (req, res) => {
         aw *= Number((plans[userObj.plan || "free"] || {}).rewardMult) || 1;
         checkinAward = aw;
       } catch { /* 顯示失敗不擋路 */ }
-      return sendJson(res, 200, { ok: true, kind: a.kind, user: cleanUser(userObj.token, userObj), event, checkinAward });
+      // 連簽（預期值：今天還沒簽就先並入今天，按鈕顯示的就是簽下去會拿到的）
+      let checkinStreak = 0, streakMultNow = 1;
+      try {
+        const t = new Date(Date.now() + 8 * 3600000);
+        const p = (n) => String(n).padStart(2, "0");
+        const twToday = `${t.getUTCFullYear()}-${p(t.getUTCMonth() + 1)}-${p(t.getUTCDate())}`;
+        checkinStreak = store.streakDays([...healCheckinLog(userObj), twToday]);
+        streakMultNow = store.streakMult(checkinStreak);
+        checkinAward *= streakMultNow;
+      } catch {}
+      return sendJson(res, 200, { ok: true, kind: a.kind, user: cleanUser(userObj.token, userObj), event,
+        checkinAward, checkinStreak, streakMult: streakMultNow });
     }
 
     // ── 用量（+ mstat 每模型：7天 tokens/請求 · 目前RPM · 平均t/s；scope=site 全站公開、scope=me 個人）──
@@ -405,22 +424,24 @@ module.exports = async (req, res) => {
       const u = users[a.user.token];
       if (!u || u.disabled) return sendJson(res, 403, { ok: false, error: { message: "帳號已停用" } });
 
-      // ① 個人推薦碼（U-XXXX-XXXX）：雙向獎勵，每人限用一次推薦碼
+      // ① 個人推薦碼（U-XXXX-XXXX）：雙向獎勵；可收多張不同碼，同張每人限兌一次（防單碼無限刷）、不能兌自己的
       const refEntry = Object.entries(users).find(([tk, x]) => x.myCode === code && tk !== a.user.token);
       if (refEntry) {
         const refUser = refEntry[1];
-        if (u.referredBy) {
-          return sendJson(res, 400, { ok: false, error: { message: "已經用過推薦碼了（每人限一次）" } });
+        u.redeemedCodes = Array.isArray(u.redeemedCodes) ? u.redeemedCodes : [];
+        if (u.redeemedCodes.includes(code)) {
+          return sendJson(res, 400, { ok: false, error: { message: "這張推薦碼你兌過了（同一張不可重複，但可以收別張）" } });
         }
         let gain = Math.max(1, Number(process.env.REFERRAL_CREDITS) || 1000);
         try { const ev = store.activeEvent(await store.getEvent()); if (ev) gain *= Number(ev.mult) || 1; } catch {}
         if (u.credits !== -1) u.credits = (Number(u.credits) || 0) + gain;
         if (refUser.credits !== -1) refUser.credits = (Number(refUser.credits) || 0) + gain;
+        u.redeemedCodes.push(code);
         u.referredBy = refUser.name || "好友";
         refUser.refCount = (Number(refUser.refCount) || 0) + 1;
         await store.setUsers(users);
         return sendJson(res, 200, { ok: true, added: gain, credits: u.credits,
-          message: `推薦成功：你 +${gain} 點，「${refUser.name}」也 +${gain} 點` });
+          message: `推薦成功：你 +${gain} 點，「${refUser.name}」也 +${gain} 點（你已收 ${u.redeemedCodes.length} 張碼）` });
       }
 
       // ② 管理員建立的邀請碼

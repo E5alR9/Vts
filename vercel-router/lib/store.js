@@ -315,6 +315,23 @@ async function ensureMonthlyQuota(users, token) {
 }
 
 /** 用量記錄：gr:usage:{yyyymmdd} JSON {token: {tokens(真實), points(扣點), reqs, models}} + user.usedTokens 累加 */
+/** 連續簽到天數（台北日）：log 為 YYYY-MM-DD 陣列；有今天算到今天、沒有算到昨天 */
+function streakDays(logArr) {
+  const set = new Set(Array.isArray(logArr) ? logArr : []);
+  const fmt = (ms) => {
+    const d = new Date(ms + 8 * 3600000);
+    const p = (n) => String(n).padStart(2, "0");
+    return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`;
+  };
+  let cur = Date.now();
+  if (!set.has(fmt(cur))) cur -= 86400000;
+  let n = 0;
+  while (set.has(fmt(cur))) { n++; cur -= 86400000; }
+  return n;
+}
+/** 連簽加成：7天×1.5 · 14天×2 · 30天×3（與活動/方案倍率相乘） */
+function streakMult(n) { return n >= 30 ? 3 : n >= 14 ? 2 : n >= 7 ? 1.5 : 1; }
+
 /** 用量日 key（站務時區 UTC+8＝台北：日界線以台北午夜為準，與前端日曆一致） */
 function dayKey(d) {
   const t = new Date((d ? d.getTime() : Date.now()) + 8 * 3600000);
@@ -571,4 +588,4 @@ async function getSpeed() {
   } catch { return []; }
 }
 
-module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, dayKey, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, MODEL_PRICES, MODEL_SPECS, POINTS_PER_USD, costFor, logRequest, getLogs, logUserReq, getUserReqs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel, getPlans, setPlans, DEFAULT_PLANS, activePlanOf, planCapsFor, addHourlySpend, hourlySpend, getEvent, setEvent, activeEvent, keyStatHash, recordKeyStat, getKeyStat, recordSpeed, getSpeed };
+module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, dayKey, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, MODEL_PRICES, MODEL_SPECS, POINTS_PER_USD, costFor, logRequest, getLogs, logUserReq, getUserReqs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel, getPlans, setPlans, DEFAULT_PLANS, activePlanOf, planCapsFor, addHourlySpend, hourlySpend, streakDays, streakMult, getEvent, setEvent, activeEvent, keyStatHash, recordKeyStat, getKeyStat, recordSpeed, getSpeed };

@@ -80,6 +80,8 @@
       <div class="stat"><div class="v" id="st7tok">–</div><div class="l">近 7 天 tokens</div></div>
       <div class="stat"><div class="v" id="st7req">–</div><div class="l">近 7 天請求</div></div>
     </div>
+    <h2 style="margin-top:18px">💎 方案 <small id="dashPlanHead">載入中…</small></h2>
+    <div class="kv" id="dashPlanKv"><div>方案</div><div>載入中…</div></div>
     <h2 style="margin-top:18px">📅 簽到日曆 <small id="calInfo">連續 0 天 · 本月 0 天</small></h2>
     <div class="cal-h" style="flex-wrap:wrap">
       <button class="cal-nav" onclick="calNav(-1)" aria-label="上個月">‹</button>
@@ -191,7 +193,7 @@
       <div>我推薦了</div><div id="refCount">0 人</div>
       <div>我的來源</div><div id="refFrom">–（自己註冊）</div>
     </div>
-    <div class="muted" style="margin-top:8px">朋友貼上你的碼（或開你的專屬連結）兌換 → 雙方各拿一筆獎勵（<code>REFERRAL_CREDITS</code>，活動期間再乘倍率）。每人限用一次推薦碼。</div>
+    <div class="muted" style="margin-top:8px">朋友貼上你的碼（或開你的專屬連結）兌換 → 雙方各拿一筆獎勵（<code>REFERRAL_CREDITS</code>，活動期間再乘倍率）。可收多張不同朋友的碼；同一張不可重複兌。</div>
   </section>
 
   <!-- ════════ 管理：帳號管理 ════════ -->
@@ -466,11 +468,19 @@ async function loadPlan(){
       ? (j.roi.paid
         ? `✅ 已回本：本月 API 用量 ${fmtPts(j.roi.spend)} 點 ≥ 方案費 ${fmtPts(j.roi.fee)} 點`
         : `📉 未回本：本月用 ${fmtPts(j.roi.spend)} 點 / 方案費 ${fmtPts(j.roi.fee)} 點（再打 ${fmtPts(Math.max(0, j.roi.fee - j.roi.spend))} 點就回本）`)
-      : "Free ＝ 純付費用戶：打多少扣多少，<b>不設5h/週額度、不設 RPM、不設總量</b>。付費方案＝月補點＋簽到/推薦加倍＋額度階梯（管理頁可調）。";
+      : "Free ＝ 純付費用戶：打多少扣多少，不設5h/週額度、不設 RPM、不設總量。付費方案＝<b>API 吃到飽（完全不扣點）</b>＋月補＋簽到加倍＋5h/週額度＋API 折扣（管理頁可調）。";
     $("planBtns").innerHTML = (j.plans || []).map(pl=>{
       const cur = pl.id === j.plan;
       return `<button class="${cur ? "" : "primary"}" ${cur ? "disabled" : ""} onclick="subPlan('${esc(pl.id)}','${esc(pl.label)}',${pl.fee})">${cur ? "✓ " : ""}${esc(pl.label)} · ${pl.fee ? pl.fee + "點/30天" : "免費"}${pl.disc < 1 ? " · API×" + pl.disc : ""}</button>`;
     }).join("");
+    //儀表板💎方案卡同步
+    const dh = $("dashPlanHead"); if(dh) dh.textContent = $("planHead").textContent;
+    const dk = $("dashPlanKv");
+    if(dk) dk.innerHTML = [
+      ["計費模式", j.active ? "吃到飽：訂閱期間 API 完全不動點數" : "純付費用戶：照官方價扣點、無窗口"],
+      ["額度", `${j.caps.h5 ? `5h ${fmtPts(j.used5)} / ${fmtPts(j.caps.h5)} 點` : "5h 不限制"} · ${j.caps.wk ? `週 ${fmtPts(j.usedWk)} / ${fmtPts(j.caps.wk)} 點` : "週不限制"}`],
+      ["本月 API", `${fmtPts(j.monthSpend)} 點${j.roi ? (j.roi.paid ? " · ✅已回本" : ` · 距回本 ${fmtPts(Math.max(0, j.roi.fee - j.roi.spend))} 點`) : ""}`],
+    ].map(([k,v])=>`<div>${esc(k)}</div><div>${esc(v)}</div>`).join("");
   }catch(e){ const h = $("planHead"); if(h) h.textContent = "載入失敗：" + e.message; }
 }
 async function subPlan(id, label, fee){
@@ -596,7 +606,8 @@ function renderCal(){
   }
   const mCount = CHECKIN.filter(s =>
     s.startsWith(`${calYear}-${pad2(calMonth + 1)}`)).length;
-  $("calInfo").textContent = `連續 ${streak} 天 · 本月 ${mCount} 天`;
+  const sm = streak >= 30 ? 3 : streak >= 14 ? 2 : streak >= 7 ? 1.5 : 1;
+  $("calInfo").textContent = `連續 ${streak} 天 · 本月 ${mCount} 天` + (sm > 1 ? ` · 連簽加成×${sm}` : "");
   // 簽到鈕狀態：有帳號才可簽；今天簽過 → 禁用
   const btn = $("btnCheckin");
   if (btn) {
