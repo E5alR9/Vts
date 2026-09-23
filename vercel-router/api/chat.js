@@ -20,6 +20,9 @@
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 const MODELS_URL = "https://api.groq.com/openai/v1/models";
 
+const store = require("../lib/store");
+const libAuth = require("../lib/auth");
+
 // 與本機 router 同步的模型梯隊（本帳號實際存在的 4 個聊天模型）
 const DEFAULT_LADDER = [
   "qwen/qwen3.8-27b",
@@ -33,18 +36,6 @@ const COOLDOWN_MS = { 401: 600_000, 403: 600_000, 429: 60_000, 400: 0, 500: 30_0
 
 // 模組層狀態：同一個 warm instance 之間保留（cold start 會清空，無妨）
 const STATE = { cursor: 0, cooldownUntil: new Map() };
-
-function loadKeys() {
-  const set = new Set();
-  const raw = process.env.GROQ_KEYS || process.env.GROQ_KEY || process.env.GROQ_API_KEYS || "";
-  for (const k of raw.split(/[\s,;]+/)) if (k.trim()) set.add(k.trim());
-  // 也可用 GROQ_KEY_1..GROQ_KEY_64 分開擺（Vercel 個別 env var 較好管理）
-  for (let i = 1; i <= 64; i++) {
-    const v = process.env[`GROQ_KEY_${i}`];
-    if (v && v.trim()) set.add(v.trim());
-  }
-  return [...set];
-}
 
 function loadLadder() {
   const raw = (process.env.MODEL_LADDER || "").trim();
@@ -89,24 +80,42 @@ function sendJson(res, status, obj) {
 }
 
 function checkAuth(req, res) {
+  // 舊共用入口（相容保留，不扣點）。新用戶請用 /api/admin 發的 user token。
   const want = process.env.ROUTER_TOKEN;
-  if (!want) {
-    sendJson(res, 500, { error: { message: "伺服器未設定 ROUTER_TOKEN，拒絕服務（fail-closed）" } });
-    return false;
-  }
   const got = req.headers.authorization || "";
-  if (got !== `Bearer ${want}`) {
-    sendJson(res, 401, { error: { message: "unauthorized" } });
-    return false;
-  }
-  return true;
+  if (want && got === `Bearer ${want}`) return { kind: "legacy" };
+  return null;
+}
+
+/** 從回應 usage 估點數（total_tokens；拿不到時按字數粗估） */
+function estimateCost(body, text) {
+  try {
+    const j = JSON.parse(text);
+    const u = j.usage || {};
+    if (Number.isFinite(u.total_tokens) && u.total_tokens > 0) return u.total_tokens;
+  } catch { /* 非 JSON */ }
+  const input = JSON.stringify(body.messages || body.input || "").length;
+  return Math.max(1, Math.ceil(input / 4) + 50);
 }
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") return sendJson(res, 405, { error: { message: "POST only" } });
-  if (!checkAuth(req, res)) return;
 
-  const keys = loadKeys();
+  // 鑑權：admin / user token / 舊共用入口
+  let caller = checkAuth(req, res);
+  if (!caller) {
+    const a = await libAuth.auth(req);
+    if (!a.ok) return sendJson(res, 401, { error: { message: "unauthorized" } });
+    // admin 也能直接聊天（不扣點）
+    caller = { kind: a.kind, user: a.user };
+  }
+  // user 帳號：點數預檢（-1 = 無限）
+  if (caller.kind === "user" && caller.user.credits !== -1 && (Number(caller.user.credits) || 0) <= 0) {
+    return sendJson(res, 402, { error: { message: "點數不足，請聯繫管理員充值", code: "insufficient_credits" } });
+  }
+
+  const keyObjs = await store.allKeys();
+  const keys = keyObjs.map((k) => k.key);
   if (!keys.length) return sendJson(res, 500, { error: { message: "未設定 GROQ_KEYS" } });
 
   let body = req.body;
@@ -156,6 +165,20 @@ module.exports = async (req, res) => {
         res.setHeader("x-router-key-index", String(idx));
         res.setHeader("x-router-key-count", String(keys.length));
 
+        // user 帳號扣點（admin/legacy 不扣；-1 無限不扣）
+        async function charge(cost) {
+          if (caller.kind !== "user" || caller.user.credits === -1) return;
+          try {
+            const users = (await store.getUsers()) || {};
+            const u = users[caller.user.token];
+            if (u && u.credits !== -1) {
+              u.credits = Math.max(0, (Number(u.credits) || 0) - cost);
+              await store.setUsers(users);
+              res.setHeader("x-credits-left", String(u.credits));
+            }
+          } catch { /* 扣點失敗不影響已生成的回應 */ }
+        }
+
         if (wantStream) {
           res.statusCode = 200;
           res.setHeader("Content-Type", upstream.headers.get("content-type") || "text/event-stream");
@@ -168,6 +191,7 @@ module.exports = async (req, res) => {
             // 上游中斷就直接收尾，客戶端會看到不完整的 SSE
           }
           res.end();
+          await charge(estimateCost(body, ""));
           return;
         }
 
@@ -175,6 +199,7 @@ module.exports = async (req, res) => {
         res.statusCode = 200;
         res.setHeader("Content-Type", "application/json; charset=utf-8");
         res.end(text);
+        await charge(estimateCost(body, text));
         return;
       }
 

@@ -3,16 +3,8 @@
  */
 const MODELS_URL = "https://api.groq.com/openai/v1/models";
 
-function loadKeys() {
-  const set = new Set();
-  const raw = process.env.GROQ_KEYS || process.env.GROQ_KEY || process.env.GROQ_API_KEYS || "";
-  for (const k of raw.split(/[\s,;]+/)) if (k.trim()) set.add(k.trim());
-  for (let i = 1; i <= 64; i++) {
-    const v = process.env[`GROQ_KEY_${i}`];
-    if (v && v.trim()) set.add(v.trim());
-  }
-  return [...set];
-}
+const store = require("../lib/store");
+const libAuth = require("../lib/auth");
 
 module.exports = async (req, res) => {
   if (req.method !== "GET") {
@@ -20,15 +12,14 @@ module.exports = async (req, res) => {
     return res.end(JSON.stringify({ error: "GET only" }));
   }
 
-  const want = process.env.ROUTER_TOKEN;
-  const got = req.headers.authorization || "";
-  if (!want || got !== `Bearer ${want}`) {
+  const a = await libAuth.auth(req);
+  if (!a.ok) {
     res.statusCode = 401;
     res.setHeader("Content-Type", "application/json");
     return res.end(JSON.stringify({ error: { message: "unauthorized" } }));
   }
 
-  const keys = loadKeys();
+  const keys = (await store.allKeys()).map((k) => k.key);
   if (!keys.length) {
     res.statusCode = 500;
     res.setHeader("Content-Type", "application/json");
