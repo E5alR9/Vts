@@ -43,6 +43,14 @@ function loadLadder() {
   return list.length ? list : DEFAULT_LADDER;
 }
 
+/** 呼叫端沒設輸出上限 → 補上該模型官方 maxOut（Groq 省略欄位時會自己砍到2048）
+ *  有設就照呼叫端的；MODEL_SPECS 沒登錄的模型不補（維持上游預設，避免亂填被400） */
+function withMax(b, model) {
+  if (b.max_tokens !== undefined) return { ...b, model };
+  const sp = store.MODEL_SPECS[model];
+  return (sp && sp.maxOut) ? { ...b, model, max_tokens: sp.maxOut } : { ...b, model };
+}
+
 function isCooling(i) {
   const until = STATE.cooldownUntil.get(i);
   return until !== undefined && Date.now() < until;
@@ -181,7 +189,7 @@ module.exports = async (req, res) => {
           "Content-Type": "application/json",
           Authorization: `Bearer ${gkey}`,
         },
-        body: JSON.stringify({ ...body, model }),
+        body: JSON.stringify(withMax(body, model)),
       };
 
       let upstream;
