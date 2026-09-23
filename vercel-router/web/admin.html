@@ -232,6 +232,7 @@ function route(){
   document.body.classList.remove("nav-open");
 }
 window.addEventListener("hashchange", route);
+buildPages();   // 立刻建頁+路由，載入期不閃「未路由」狀態
 
 async function loadAll(){
   if(!token()){ toast("請先登入（貼 ADMIN_TOKEN）", true); return; }
@@ -505,7 +506,6 @@ async function loadUsage(){
     .then(r=>r.json()).then(j=>{
       if(!j.ok) return location.href = "/login";
       if(j.kind!=="admin" && !(j.user&&j.user.role==="admin")) return location.href = "/me";
-      buildPages();
       loadAll(); loadUsage(); loadInvites(); loadChannels(); loadLogs();
     }).catch(()=>location.href="/login");
 })();

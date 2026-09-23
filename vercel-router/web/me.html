@@ -104,6 +104,22 @@ async function post(body){
     body:JSON.stringify(body)});
   return r.json();
 }
+let ME = null;
+function renderKv(u){
+  const credits = u.credits===-1 ? "無限" : u.credits;
+  $("kvMe").innerHTML = [
+    ["名稱", u.name], ["角色", u.role], ["點數", credits],
+    ["累計用量", (u.usedTokens||0)+" tokens"],
+    ["註冊時間", u.createdAt ? u.createdAt.slice(0,10) : "--"],
+  ].map(([k,v])=>`<div>${esc(k)}</div><div>${esc(v)}</div>`).join("");
+}
+function setCredits(c){
+  if (ME) ME.credits = c;
+  const disp = c===-1 ? "無限" : c;
+  const sc = $("stCredits"); if (sc) sc.textContent = disp;
+  const hc = $("hdrCredits"); if (hc) hc.textContent = `👤 ${ME ? ME.name : ""} · 點數 ${disp}`;
+  if (ME) renderKv(ME);
+}
 function logout(){
   post({action:"logout"}).finally(()=>{ localStorage.removeItem("gr_session"); location.href="/login"; });
 }
@@ -111,7 +127,14 @@ async function checkin(){
   try{
     const j = await post({action:"checkin"});
     toast(j.message || (j.ok ? "簽到成功 ✅" : "失敗"), !j.ok);
-    if(j.ok) setTimeout(()=>location.reload(), 700);
+    if(j.ok){
+      if(j.credits !== undefined) setCredits(j.credits);
+      if(j.checked){                      // 就地補日曆，不整頁重載
+        const t = new Date();
+        CHECKIN.push(ds(t.getFullYear(), t.getMonth(), t.getDate()));
+        renderCal();
+      }
+    }
   }catch(e){ toast("失敗："+e.message, true); }
 }
 async function redeem(){
@@ -120,7 +143,7 @@ async function redeem(){
   try{
     const j = await post({action:"invites.redeem", code});
     toast(j.message || (j.ok ? "兌換成功 ✅" : "失敗"), !j.ok);
-    if(j.ok) setTimeout(()=>location.reload(), 700);
+    if(j.ok && j.credits !== undefined){ setCredits(j.credits); $("invCode").value = ""; }
   }catch(e){ toast("失敗："+e.message, true); }
 }
 async function cpText(id, msg){
@@ -196,6 +219,8 @@ function route(){
   document.body.classList.remove("nav-open");
 }
 window.addEventListener("hashchange", route);
+buildPages();   // 立刻建頁+路由，載入期也不會閃「未路由」狀態
+renderCal();    // 先畫本月框（資料後到再重畫）
 
 function fillSnippets(key){
   const BASE = "https://vercel-router-khaki.vercel.app/v1";
@@ -228,15 +253,10 @@ console.log(await res.json());`;
     if(!me.ok){ localStorage.removeItem("gr_session"); return location.href="/login"; }
     if(me.kind==="admin"||(me.user&&me.user.role==="admin")) return location.href="/admin";
     const u = me.user;
-    const credits = u.credits===-1 ? "無限" : u.credits;
-    $("hdrCredits").textContent = `👤 ${u.name} · 點數 ${credits}`;
-    $("stCredits").textContent = credits;
+    ME = u;
     $("stTokens").textContent = u.usedTokens||0;
-    $("kvMe").innerHTML = [
-      ["名稱", u.name], ["角色", u.role], ["點數", credits],
-      ["累計用量", (u.usedTokens||0)+" tokens"],
-      ["註冊時間", u.createdAt ? u.createdAt.slice(0,10) : "--"],
-    ].map(([k,v])=>`<div>${esc(k)}</div><div>${esc(v)}</div>`).join("");
+    renderKv(u);
+    setCredits(u.credits);
     if(u.token) fillSnippets(u.token);
     CHECKIN = Array.isArray(u.checkinLog) ? u.checkinLog : [];
 
@@ -262,8 +282,7 @@ console.log(await res.json());`;
   }catch(e){
     $("kvMe").innerHTML = `<div>錯誤</div><div>${esc(e.message)}</div>`;
   }
-  renderCal();
-  buildPages();
+  renderCal();   // 用真實 checkinLog 重畫（buildPages 前面已跑過）
 })();
 </script>
 </body>
