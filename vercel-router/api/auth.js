@@ -180,10 +180,12 @@ module.exports = async (req, res) => {
         defaults: store.DEFAULT_PRICING, pointsPerUsd: store.POINTS_PER_USD });
     }
 
-    // ── 實測速度（每個時刻的 t/s）：用戶看自己的，admin 看全站 ──
+    // ── 實測速度：scope=site 全站公開；scope=me（或預設非admin）看自己的 ──
     if (action === "speed") {
       const arr = await store.getSpeed();
-      const out = a.kind === "admin" ? arr : arr.filter((e) => e.u === (a.user ? a.user.token : ""));
+      const scope = url.searchParams.get("scope");
+      const wantSite = scope === "site" || (a.kind === "admin" && scope !== "me");
+      const out = wantSite ? arr : arr.filter((e) => e.u === (a.user ? a.user.token : ""));
       return sendJson(res, 200, { ok: true, points: out.slice(-300) });   // 圖表最多載300點
     }
 
@@ -244,13 +246,14 @@ module.exports = async (req, res) => {
       return sendJson(res, 200, { ok: true, kind: a.kind, user: cleanUser(userObj.token, userObj), event });
     }
 
-    // ── 用量（+ mstat 每模型：7天 tokens/請求 · 目前RPM · 平均t/s）──
+    // ── 用量（+ mstat 每模型：7天 tokens/請求 · 目前RPM · 平均t/s；scope=site 全站公開、scope=me 個人）──
     if (action === "usage") {
       const days = url.searchParams.get("days") || body.days;
       const all = await store.getUsage(days);
       const qToken = url.searchParams.get("token") || body.token;
+      const scope = url.searchParams.get("scope") || body.scope;
       const cnt = (mm) => { const o = {}; for (const [m, v] of Object.entries(mm || {})) o[m] = typeof v === "number" ? v : (v && v.r) || 0; return o; };
-      const wantAgg = a.kind === "admin" && !qToken;
+      const wantAgg = scope ? scope === "site" : (a.kind === "admin" && !qToken);
       const scopeTok = wantAgg ? null : (qToken || (a.user && a.user.token) || null);
       // ① 7天 tokens/請求（per model，含舊格式相容）
       const ms = {};
@@ -283,7 +286,7 @@ module.exports = async (req, res) => {
           return { day: d.day, ...(e ? { ...e, models: cnt(e.models) } : { tokens: 0, reqs: 0, models: {} }) }; });
         return sendJson(res, 200, { ok: true, usage: mine, mstat });
       }
-      if (a.kind === "admin") {
+      if (wantAgg) {
         const agg = (all || []).map((d) => {
           let tokens = 0, reqs = 0;
           const users = Object.keys(d.data || {});

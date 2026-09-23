@@ -98,6 +98,10 @@
   <!-- ════════ 用量明細（含圖表） ════════ -->
   <section id="secUsage" style="grid-column:span 12">
     <h2>📈 用量明細（近 7 天） <small id="useTotal"></small></h2>
+    <div class="tabs" style="max-width:320px;margin-bottom:10px">
+      <button id="tabMy" class="active" onclick="switchUse('me')">👤 我的用量</button>
+      <button id="tabSite" onclick="switchUse('site')">🌐 全站公開</button>
+    </div>
     <div id="chart"></div>
     <div id="chartLbl"></div>
     <div class="muted" style="margin-top:6px">近 7 天用量（tokens / 天，左→右由舊到新）</div>
@@ -326,7 +330,7 @@ function fmtPts(n){
 }
 
 /* ── 身分 ── */
-let ME = null, IS_ADMIN = false, CHART_ROWS = [], SPEED_PTS = [], AKS = [];
+let ME = null, IS_ADMIN = false, CHART_ROWS = [], SPEED_PTS = [], AKS = [], USE_SCOPE = "me";
 function token(){
   return localStorage.getItem("gr_session") || localStorage.getItem("gr_admin_token") || "";
 }
@@ -972,11 +976,20 @@ async function loadKeyPress(){
   }catch(e){ $("kpRows").innerHTML = `<tr><td colspan="6" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
 }
 
-/* ── 用量明細：表 + 圖 + 7 天卡（兩種角色同一條路）── */
+/* ── 我的 / 全站 兩個頁籤 ── */
+function switchUse(s){
+  USE_SCOPE = s;
+  $("tabMy").classList.toggle("active", s === "me");
+  $("tabSite").classList.toggle("active", s === "site");
+  loadUsage();
+  loadSpeed();
+}
+
+/* ── 用量明細：表 + 圖 + 7 天卡（兩個角色同一條路）── */
 async function loadUsage(){
-  const c4 = $("useCol4"); if (c4 && IS_ADMIN) c4.textContent = "活躍 / 模型";
+  const c4 = $("useCol4"); if (c4) c4.textContent = USE_SCOPE === "site" ? "活躍 / 模型" : "模型";
   try{
-    const r = await fetch("/api/auth?action=usage&days=7", { headers:{Authorization:"Bearer "+token()} });
+    const r = await fetch(`/api/auth?action=usage&days=7&scope=${USE_SCOPE}`, { headers:{Authorization:"Bearer "+token()} });
     const j = await r.json();
     if(!j.ok) throw new Error((j.error&&j.error.message)||"載入失敗");
     const rows = j.usage||[];
@@ -987,7 +1000,7 @@ async function loadUsage(){
       const act = d.users ? `${esc(d.users)} 帳號 · ` : "";
       return `<tr><td>${esc(d.day||"")}</td><td>${d.tokens||0}</td><td>${d.points||0}</td><td>${d.reqs||0}</td><td>${act}${models}</td></tr>`;
     }).join("") || '<tr><td colspan="5" class="muted">尚無用量</td></tr>';
-    $("useTotal").textContent = `共 ${tot} tokens · ${pts} 點 / ${req} 次`;
+    $("useTotal").textContent = `${USE_SCOPE === "site" ? "🌐 全站公開" : "👤 我的"} · 共 ${tot} tokens · ${pts} 點 / ${req} 次`;
     const t7 = $("st7tok"), q7 = $("st7req");
     if (t7) t7.textContent = tot;
     if (q7) q7.textContent = req;
@@ -997,7 +1010,7 @@ async function loadUsage(){
     drawUsageChart(days);
     // 每模型統計表
     const scope = $("mstatScope");
-    if(scope) scope.textContent = IS_ADMIN ? "全站（admin 視角）" : "我的用量";
+    if(scope) scope.textContent = USE_SCOPE === "site" ? "🌐 全站公開" : "👤 我的用量";
     const ms = j.mstat || [];
     $("mstatRows").innerHTML = ms.map(s=>{
       const nm = String(s.model).split("/").pop();
@@ -1097,7 +1110,7 @@ function drawSpeedChart(pts){
   const every = Math.max(1, Math.ceil(n / 8));
   $("speedChartLbl").innerHTML = SPEED_PTS.map((p, i) => `<span>${i % every === 0 ? hhmm(p.t) : ""}</span>`).join("");
   const avg = Math.round(vals.reduce((s, v) => s + v, 0) / n);
-  $("speedTotal").textContent = `近 ${n} 筆 · 平均 ${avg} t/s · 峰值 ${Math.round(max)} t/s`;
+  $("speedTotal").textContent = `${USE_SCOPE === "site" ? "🌐 全站" : "👤 我的"} · 近 ${n} 筆 · 平均 ${avg} t/s · 峰值 ${Math.round(max)} t/s`;
   box.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <linearGradient id="spArea" x1="0" y1="0" x2="0" y2="1">
@@ -1116,7 +1129,7 @@ function drawSpeedChart(pts){
 }
 async function loadSpeed(){
   try{
-    const r = await fetch("/api/auth?action=speed", { headers:{Authorization:"Bearer "+token()} });
+    const r = await fetch(`/api/auth?action=speed&scope=${USE_SCOPE}`, { headers:{Authorization:"Bearer "+token()} });
     const j = await r.json();
     drawSpeedChart((j.ok && j.points) || []);
   }catch{ drawSpeedChart([]); }
@@ -1193,6 +1206,10 @@ async function loadPlayModels(){
     return location.href = "/login";
   }
   IS_ADMIN = j.kind === "admin" || !!(j.user && j.user.role === "admin");
+  // 預設頁籤：admin 落全站、user 落我的（兩邊都能切）
+  USE_SCOPE = IS_ADMIN ? "site" : "me";
+  $("tabMy").classList.toggle("active", USE_SCOPE === "me");
+  $("tabSite").classList.toggle("active", USE_SCOPE === "site");
   if(IS_ADMIN){
     document.querySelectorAll(".admOnly").forEach(e => e.style.display = "");   // 解除預設隱藏
   } else {
