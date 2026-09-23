@@ -300,10 +300,11 @@ async function getUserReqs(userToken) {
 async function ensureMonthlyQuota(users, token) {
   const u = users[token];
   if (!u) return false;
-  // 訂閱到期 → 降回 free（順手寫回）
-  if (u.plan && u.plan !== "free" && u.subUntil && Date.now() > Date.parse(u.subUntil)) {
-    u.plan = "free"; u.monthlyQuota = 0;
-  }
+  // 有效方案=free（到期已取消/續不起）→ 不月補；不在這裡降級（續約交給 maybeRenew / plan.info）
+  try {
+    const plans = await getPlans();
+    if (activePlanOf(u, plans) === "free") return false;
+  } catch { /* 讀方案失敗→照舊邏輯 */ }
   if (!u.monthlyQuota || Number(u.monthlyQuota) <= 0) return false;
   const t = new Date();
   const ym = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}`;
@@ -331,6 +332,27 @@ function streakDays(logArr) {
 }
 /** 連簽加成：7天×1.5 · 14天×2 · 30天×3（與活動/方案倍率相乘） */
 function streakMult(n) { return n >= 30 ? 3 : n >= 14 ? 2 : n >= 7 ? 1.5 : 1; }
+
+/** 到期處理（訂閱制核心）：
+ *  · 未到期 → null（不用動）
+ *  · 到期 + 未取消 + 餘額足 → **自動續約**：扣月費、期限=當下+30天（中斷期不補），回 "renewed"（呼叫端要寫回）
+ *  · 到期 + 未取消 + 餘額不足 → "short"（不寫；之後充值碰到任一入口會自動補續）
+ *  · 到期 + 已取消 → null（不續，activePlanOf 自然降 Free；權益已在到期前有效）
+ */
+function maybeRenew(u, plans) {
+  if (!u || !u.plan || u.plan === "free" || !u.subUntil) return null;
+  const exp = Date.parse(u.subUntil);
+  if (!Number.isFinite(exp) || Date.now() <= exp) return null;
+  if (u.subCancel) return null;
+  const p = plans[u.plan];
+  if (!p) return null;
+  const fee = Number(p.fee) || 0;
+  if (u.credits !== -1 && (Number(u.credits) || 0) < fee) return "short";
+  if (fee > 0 && u.credits !== -1) u.credits = Math.round(((Number(u.credits) || 0) - fee) * 1e6) / 1e6;
+  u.subUntil = new Date(Date.now() + 30 * 86400000).toISOString();
+  u.subCancel = false;
+  return "renewed";
+}
 
 /** 用量日 key（站務時區 UTC+8＝台北：日界線以台北午夜為準，與前端日曆一致） */
 function dayKey(d) {
@@ -364,25 +386,40 @@ async function recordUsage(userToken, model, tokens, points) {
   } catch { /* 用量記錄失敗不影響回應 */ }
 }
 
-/** 讀用量：days 天內每日彙總（只回該 token 自己的，除非 admin 看全部） */
+/** 讀用量：days 天內每日彙總（只回該 token 自己的，除非 admin 看全部）— pipeline 一次HTTP撈全部 */
 async function getUsage(days) {
   const k = kv();
   if (!k) return null;
   const n = Math.max(1, Math.min(365, Number(days) || 7));   // 最多回看365天
-  const out = [];
   const now = new Date();
-  for (let i = 0; i < n; i++) {
-    const d = new Date(now.getTime() - i * 86400000);
-    const dk = `gr:usage:${dayKey(d)}`;
-    try {
-      const raw = await k.get(dk);
-      const tw = new Date(d.getTime() + 8 * 3600000);   // 標籤與 key 同用 UTC+8，避免錯位一天
-      const iso = `${tw.getUTCFullYear()}-${String(tw.getUTCMonth() + 1).padStart(2, "0")}-${String(tw.getUTCDate()).padStart(2, "0")}`;
-      out.push({ day: iso,
-        data: raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {} });
-    } catch { out.push({ day: "", data: {} }); }
+  const list = [];
+  for (let i = 0; i < n; i++) list.push(new Date(now.getTime() - i * 86400000));
+  const isoOf = (d) => {
+    const tw = new Date(d.getTime() + 8 * 3600000);   // 標籤與 key 同用 UTC+8，避免錯位一天
+    return `${tw.getUTCFullYear()}-${String(tw.getUTCMonth() + 1).padStart(2, "0")}-${String(tw.getUTCDate()).padStart(2, "0")}`;
+  };
+  try {
+    const pl = k.pipeline();
+    for (const d of list) pl.get(`gr:usage:${dayKey(d)}`);
+    const res = await pl.exec();                      // ← 單次HTTP（原本31次逐筆=慢數秒元凶）
+    return list.map((d, i) => {
+      const raw = res ? res[i] : null;
+      let data = {};
+      try { data = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {}; } catch {}
+      return { day: isoOf(d), data };
+    });
+  } catch {
+    const out = [];                                   // 退路：pipeline不可用時逐筆
+    for (const d of list) {
+      try {
+        const raw = await k.get(`gr:usage:${dayKey(d)}`);
+        let data = {};
+        try { data = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {}; } catch {}
+        out.push({ day: isoOf(d), data });
+      } catch { out.push({ day: "", data: {} }); }
+    }
+    return out;
   }
-  return out;
 }
 
 /* ── 方案（plus/pro/max/ultra 預留）：gr:plans {id:{label,monthlyQuota,rewardMult}} ── */
@@ -588,4 +625,4 @@ async function getSpeed() {
   } catch { return []; }
 }
 
-module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, dayKey, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, MODEL_PRICES, MODEL_SPECS, POINTS_PER_USD, costFor, logRequest, getLogs, logUserReq, getUserReqs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel, getPlans, setPlans, DEFAULT_PLANS, activePlanOf, planCapsFor, addHourlySpend, hourlySpend, streakDays, streakMult, getEvent, setEvent, activeEvent, keyStatHash, recordKeyStat, getKeyStat, recordSpeed, getSpeed };
+module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, dayKey, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, MODEL_PRICES, MODEL_SPECS, POINTS_PER_USD, costFor, logRequest, getLogs, logUserReq, getUserReqs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel, getPlans, setPlans, DEFAULT_PLANS, activePlanOf, planCapsFor, maybeRenew, addHourlySpend, hourlySpend, streakDays, streakMult, getEvent, setEvent, activeEvent, keyStatHash, recordKeyStat, getKeyStat, recordSpeed, getSpeed };

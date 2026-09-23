@@ -199,6 +199,7 @@
     </div>
     <div class="muted" id="planRoi" style="margin-top:8px"></div>
     <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap" id="planBtns"></div>
+    <div id="planRenew" style="margin-top:8px"></div>
     <div class="muted" style="margin-top:8px">訂閱＝30天制：付點數 → 期間 <b>API 吃到飽</b>（5h/週窗口是上限，完全不動餘額），到期自動回 Free 照官方價扣；隨時可降回 Free（不退費）。</div>
   </section>
 
@@ -478,6 +479,14 @@ async function loadPlan(){
       const cur = pl.id === j.plan;
       return `<button class="${cur ? "" : "primary"}" ${cur ? "disabled" : ""} onclick="subPlan('${esc(pl.id)}','${esc(pl.label)}',${pl.fee})">${cur ? "✓ " : ""}${esc(pl.label)} · ${pl.fee ? pl.fee + "點/30天" : "免費"}</button>`;
     }).join("");
+    // 續約狀態列：自動續約中 / 已取消（權益留到到期）
+    const rr = $("planRenew");
+    if (rr) {
+      rr.innerHTML = !j.active ? ""
+        : j.subCancel
+          ? `<span class="chip warn">⏰ 已取消續約 · 到期 ${String(j.subUntil).slice(0,10) || "?"} 自動轉 Free（權益保留到那天）</span> <button onclick="planRenewCtl('resume')">🔄 恢復自動續約</button>`
+          : `<span class="chip ok">🔄 自動續約中 · 到期 ${String(j.subUntil).slice(0,10) || "?"} 自動扣 ${fmtPts(j.fee)} 點續30天</span> <button class="danger" onclick="planRenewCtl('cancel')">取消續約</button>`;
+    }
     //儀表板💎方案卡同步
     const dh = $("dashPlanHead"); if(dh) dh.textContent = $("planHead").textContent;
     const dk = $("dashPlanKv");
@@ -489,12 +498,19 @@ async function loadPlan(){
   }catch(e){ const h = $("planHead"); if(h) h.textContent = "載入失敗：" + e.message; }
 }
 async function subPlan(id, label, fee){
-  const act = id === "free" ? "回到 Free 方案（降級）" : `訂閱 ${label}（扣 ${fee} 點 / 30天）`;
+  const act = id === "free" ? "回到 Free 方案（降級，立即失效）" : `訂閱 ${label}（扣 ${fee} 點 / 30天 · 到期自動續約可取消）`;
   if(!confirm(act + "？")) return;
   try{
     const j = await post({ action: "plan.subscribe", plan: id });
     toast(j.message || (j.ok ? "OK" : "失敗"), !j.ok);
     if(j.ok){ if(j.credits !== undefined) setCredits(j.credits); loadPlan(); }
+  }catch(e){ toast("失敗：" + e.message, true); }
+}
+async function planRenewCtl(mode){
+  try{
+    const j = await post({ action: mode === "cancel" ? "plan.cancel" : "plan.resume" });
+    toast(j.message || (j.ok ? "OK" : "失敗"), !j.ok);
+    if(j.ok) loadPlan();
   }catch(e){ toast("失敗：" + e.message, true); }
 }
 

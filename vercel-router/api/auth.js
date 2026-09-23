@@ -222,6 +222,11 @@ module.exports = async (req, res) => {
       const u = users[a.user.token];
       if (!u) return sendJson(res, 404, { ok: false, error: { message: "找不到帳號" } });
       const plans = await store.getPlans();
+      try { if (store.maybeRenew(u, plans)) await store.setUsers(users); } catch {}   // 到期自動續約
+      // 已取消且過期 → 清方案欄位（歷史 subUntil 保留）
+      if (u.subCancel && u.plan && u.plan !== "free" && u.subUntil && Date.now() > Date.parse(u.subUntil)) {
+        u.plan = "free"; u.monthlyQuota = 0; await store.setUsers(users);
+      }
       const ev = store.activeEvent(await store.getEvent());
       const pid = store.activePlanOf(u, plans);
       const caps = store.planCapsFor(plans, pid, ev);
@@ -240,6 +245,7 @@ module.exports = async (req, res) => {
       const fee = caps.fee;
       return sendJson(res, 200, { ok: true, plan: pid, label: caps.label,
         active: pid !== "free", subUntil: u.subUntil || "",
+        autoRenew: !u.subCancel, subCancel: !!u.subCancel,
         caps, ev: ev ? { mult: ev.mult, label: ev.label, until: ev.until } : null,
         used5, usedWk, monthSpend, fee,
         roi: fee > 0 ? { fee, spend: monthSpend, paid: monthSpend >= fee } : null,
@@ -266,10 +272,29 @@ module.exports = async (req, res) => {
       u.plan = want;
       u.monthlyQuota = Number(p.monthlyQuota) || 0;
       u.subUntil = new Date(Date.now() + 30 * 86400000).toISOString();
+      u.subCancel = false;                          // 訂閱=開啟自動續約
       await store.setUsers(users);
       return sendJson(res, 200, { ok: true, plan: want, fee, credits: u.credits,
         subUntil: u.subUntil, message: want === "free" ? "已回到 Free 方案"
-        : `已訂閱 ${p.label || want} · 30天（扣 ${fee} 點）` });
+        : `已訂閱 ${p.label || want} · 30天（扣 ${fee} 點）· 到期自動續約，可隨時取消` });
+    }
+
+    // ── 取消 / 恢復自動續約：取消者權益保留到 subUntil 為止 ──
+    if (action === "plan.cancel" || action === "plan.resume") {
+      if (!a.user) return sendJson(res, 400, { ok: false, error: { message: "此身分需帳號" } });
+      const users = (await store.getUsers()) || {};
+      const u = users[a.user.token];
+      if (!u || u.disabled) return sendJson(res, 404, { ok: false, error: { message: "找不到帳號" } });
+      if (!u.plan || u.plan === "free") {
+        return sendJson(res, 200, { ok: true, note: "目前是 Free，無續約可取消" });
+      }
+      u.subCancel = action === "plan.cancel";
+      await store.setUsers(users);
+      const until = String(u.subUntil || "").slice(0, 10);
+      return sendJson(res, 200, { ok: true, subCancel: u.subCancel, subUntil: u.subUntil || "",
+        message: u.subCancel
+          ? `已取消續約：權益保留到 ${until || "到期日"}，之後自動轉 Free`
+          : `已恢復自動續約：${until || "到期日"} 到期自動扣月費續30天` });
     }
 
     // ── 我的 API 金鑰（一帳號多把子金鑰，同錢包同額度；主金鑰=帳號token不可刪）──

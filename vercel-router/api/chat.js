@@ -161,6 +161,7 @@ module.exports = async (req, res) => {
       const u0 = users0[caller.user.token];
       if (u0) {
         const plans = await store.getPlans();
+        try { if (store.maybeRenew(u0, plans)) await store.setUsers(users0); } catch {}   // 到期自動續約（未取消才扣費）
         const ev = store.activeEvent(await store.getEvent());
         const caps = store.planCapsFor(plans, store.activePlanOf(u0, plans), ev);
         PLAN_CAPS = caps;

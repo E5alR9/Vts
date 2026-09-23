@@ -139,6 +139,7 @@ module.exports = async (req, res) => {
         token, name: u.name, role: u.role, credits: u.credits,
         usedTokens: u.usedTokens || 0,
         plan: u.plan || "free", monthlyQuota: u.monthlyQuota || 0,
+        subUntil: u.subUntil || "", subCancel: !!u.subCancel,
         disabled: !!u.disabled, createdAt: u.createdAt || "",
       }));
       return sendJson(res, 200, { ok: true, users: list });
@@ -184,6 +185,12 @@ module.exports = async (req, res) => {
       }
       if (f.disabled !== undefined) u.disabled = !!f.disabled;
       if (f.plan !== undefined) u.plan = String(f.plan || "free");       // 方案名（free/月費方案名）
+      if (f.subUntil !== undefined) {                                    // 管理端修理用（格式 yyyy-mm-dd 或 ISO）
+        const s = String(f.subUntil || "").trim();
+        if (s && isNaN(Date.parse(s))) return sendJson(res, 400, { ok: false, error: { message: "subUntil 日期格式不對" } });
+        u.subUntil = s;
+      }
+      if (f.subCancel !== undefined) u.subCancel = !!f.subCancel;
       if (f.monthlyQuota !== undefined) {
         const q = Number(f.monthlyQuota);
         if (!Number.isFinite(q) || q < 0) {
