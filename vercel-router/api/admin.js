@@ -287,10 +287,13 @@ module.exports = async (req, res) => {
       }
       let removed = 0;
       try {
-        removed = Number(await k.del(keys)) || 0;        // 批量 del（1個命令，避開30s上限）
+        const pl = k.pipeline();                        // pipeline = 1次HTTP刪全部（避開30s上限）
+        for (const key of keys) pl.del(key);
+        const res = await pl.exec();
+        removed = (res || []).reduce((s, n) => s + (Number(n) || 0), 0);
       } catch (e1) {
-        for (let i = 0; i < keys.length; i += 50) {      // 退路：分批50
-          try { removed += Number(await k.del(keys.slice(i, i + 50))) || 0; } catch {}
+        for (let i = 0; i < Math.min(keys.length, 90); i++) {   // 退路：逐筆del、限90天
+          try { removed += Number(await k.del(keys[i])) || 0; } catch {}
         }
       }
       try { await k.del("gr:logs"); } catch {}           // 舊請求日誌（含舊匯率成本）
