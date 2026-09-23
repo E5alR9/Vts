@@ -207,6 +207,62 @@ module.exports = async (req, res) => {
       return sendJson(res, 200, { ok: true, points: out.slice(-300) });   // 圖表最多載300點
     }
 
+    // ── 方案：資訊（窗口用量/本月API消耗/回本ROI）＋點數訂閱 ──
+    if (action === "plan.info") {
+      if (!a.user) return sendJson(res, 400, { ok: false, error: { message: "此身分需帳號" } });
+      const users = (await store.getUsers()) || {};
+      const u = users[a.user.token];
+      if (!u) return sendJson(res, 404, { ok: false, error: { message: "找不到帳號" } });
+      const plans = await store.getPlans();
+      const ev = store.activeEvent(await store.getEvent());
+      const pid = store.activePlanOf(u, plans);
+      const caps = store.planCapsFor(plans, pid, ev);
+      const used5 = store.hourlySpend(u, 5), usedWk = store.hourlySpend(u, 168);
+      // 本月 API 消耗（usage 日誌 points 加總，1點=US$1）
+      let monthSpend = 0;
+      try {
+        const all = await store.getUsage(31);
+        const now = new Date();
+        const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+        for (const d of all || []) if ((d.day || "").startsWith(ym)) {
+          const e = d.data && d.data[a.user.token];
+          if (e) monthSpend += Number(e.points) || 0;
+        }
+      } catch {}
+      const fee = caps.fee;
+      return sendJson(res, 200, { ok: true, plan: pid, label: caps.label,
+        active: pid !== "free", subUntil: u.subUntil || "",
+        caps, ev: ev ? { mult: ev.mult, label: ev.label, until: ev.until } : null,
+        used5, usedWk, monthSpend, fee,
+        roi: fee > 0 ? { fee, spend: monthSpend, paid: monthSpend >= fee } : null,
+        plans: Object.entries(plans).map(([id, p]) => ({ id,
+          label: p.label || id, fee: Number(p.fee) || 0, h5: Number(p.h5) || 0,
+          wk: Number(p.wk) || 0, monthlyQuota: Number(p.monthlyQuota) || 0,
+          rewardMult: Number(p.rewardMult) || 1 })) });
+    }
+    if (action === "plan.subscribe") {
+      if (!a.user) return sendJson(res, 400, { ok: false, error: { message: "此身分需帳號" } });
+      const users = (await store.getUsers()) || {};
+      const u = users[a.user.token];
+      if (!u || u.disabled) return sendJson(res, 403, { ok: false, error: { message: "帳號已停用" } });
+      const plans = await store.getPlans();
+      const want = String(body.plan || "").toLowerCase();
+      const p = plans[want];
+      if (!p) return sendJson(res, 400, { ok: false, error: { message: "方案不存在" } });
+      const fee = Number(p.fee) || 0;
+      if (u.credits !== -1 && (Number(u.credits) || 0) < fee) {
+        return sendJson(res, 402, { ok: false, error: { message: `點數不足（${p.label || want} 方案費 ${fee} 點）` } });
+      }
+      if (fee > 0 && u.credits !== -1) u.credits = Math.round(((Number(u.credits) || 0) - fee) * 1e6) / 1e6;
+      u.plan = want;
+      u.monthlyQuota = Number(p.monthlyQuota) || 0;
+      u.subUntil = new Date(Date.now() + 30 * 86400000).toISOString();
+      await store.setUsers(users);
+      return sendJson(res, 200, { ok: true, plan: want, fee, credits: u.credits,
+        subUntil: u.subUntil, message: want === "free" ? "已回到 Free 方案"
+        : `已訂閱 ${p.label || want} · 30天（扣 ${fee} 點）` });
+    }
+
     // ── 我的 API 金鑰（一帳號多把子金鑰，同錢包同額度；主金鑰=帳號token不可刪）──
     if (action === "ak.create" || action === "ak.toggle" || action === "ak.delete") {
       if (!a.user) return sendJson(res, 400, { ok: false, error: { message: "此身分不用 API 金鑰" } });

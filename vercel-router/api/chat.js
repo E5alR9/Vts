@@ -157,6 +157,29 @@ module.exports = async (req, res) => {
     return sendJson(res, 402, { error: { message: "點數不足，請聯繫管理員充值", code: "insufficient_credits" } });
   }
 
+  // 方案速率配額：每5小時 / 每週上限（點數口徑；活動期間×倍率）。總量不設限、RPM不設限——只分級管速率
+  if (caller.kind === "user" && caller.user) {
+    try {
+      const users0 = (await store.getUsers()) || {};
+      const u0 = users0[caller.user.token];
+      if (u0) {
+        const plans = await store.getPlans();
+        const ev = store.activeEvent(await store.getEvent());
+        const caps = store.planCapsFor(plans, store.activePlanOf(u0, plans), ev);
+        const used5 = store.hourlySpend(u0, 5), usedW = store.hourlySpend(u0, 168);
+        const act = ev ? `（活動×${ev.mult}）` : "";
+        if (caps.h5 > 0 && used5 >= caps.h5) {
+          return sendJson(res, 429, { error: { message:
+            `方案 ${caps.label} 的5小時用量已滿（${used5.toFixed(4)} / ${caps.h5} 點${act}），稍後再試或升級方案`, code: "plan_5h_limit" } });
+        }
+        if (caps.wk > 0 && usedW >= caps.wk) {
+          return sendJson(res, 429, { error: { message:
+            `方案 ${caps.label} 的每週用量已滿（${usedW.toFixed(4)} / ${caps.wk} 點${act}），下週再試或升級方案`, code: "plan_week_limit" } });
+        }
+      }
+    } catch { /* 配額檢查失敗不擋路 */ }
+  }
+
   const keyObjs = await store.allKeys();
   const keys = keyObjs.map((k) => k.key);
   if (!keys.length) return sendJson(res, 500, { error: { message: "未設定 GROQ_KEYS" } });
@@ -277,6 +300,7 @@ module.exports = async (req, res) => {
                 u.credits = Math.max(0, (Number(u.credits) || 0) - cost);
                 u.usedTokens = (Number(u.usedTokens) || 0) + total;
                 if (caller.sub) { const kk = (u.keys || []).find((x) => x.id === caller.sub.id); if (kk) kk.lastUsed = Date.now(); }
+                await store.addHourlySpend(u, cost);   // 計入5h/週配額桶
                 await store.setUsers(users);
                 billedLeft = u.credits;
                 await store.recordUsage(caller.user.token, model, total, cost);
@@ -324,6 +348,7 @@ module.exports = async (req, res) => {
               u.credits = Math.max(0, (Number(u.credits) || 0) - cost);
               u.usedTokens = (Number(u.usedTokens) || 0) + realTokens;
               if (caller.sub) { const kk = (u.keys || []).find((x) => x.id === caller.sub.id); if (kk) kk.lastUsed = Date.now(); }
+              await store.addHourlySpend(u, cost);   // 計入5h/週配額桶
               await store.setUsers(users);
               res.setHeader("x-credits-left", String(u.credits));
               await store.recordUsage(caller.user.token, model, realTokens, cost);

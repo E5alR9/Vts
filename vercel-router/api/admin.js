@@ -423,20 +423,12 @@ module.exports = async (req, res) => {
       for (const [id, p] of Object.entries(inPlans)) {
         if (!cur[id]) continue;
         if (p.label !== undefined) cur[id].label = String(p.label).slice(0, 20);
-        if (p.monthlyQuota !== undefined) {
-          const q = Number(p.monthlyQuota);
-          if (!Number.isFinite(q) || q < 0) {
-            return sendJson(res, 400, { ok: false, error: { message: `${id}.monthlyQuota 需 >=0` } });
-          }
-          cur[id].monthlyQuota = q;
-        }
-        if (p.rewardMult !== undefined) {
-          const m = Number(p.rewardMult);
-          if (!Number.isFinite(m) || m < 1 || m > 100) {
-            return sendJson(res, 400, { ok: false, error: { message: `${id}.rewardMult 需 1~100` } });
-          }
-          cur[id].rewardMult = m;
-        }
+        const num = (v, min, max, msg) => { const x = Number(v); if (!Number.isFinite(x) || x < min || x > max) return sendJson(res, 400, { ok: false, error: { message: `${id}.${msg} 需 ${min}~${max}` } }); return x; };
+        if (p.monthlyQuota !== undefined) { const q = num(p.monthlyQuota, 0, 1e9, "monthlyQuota"); if (q === undefined) return; cur[id].monthlyQuota = q; }
+        if (p.rewardMult !== undefined)  { const m = num(p.rewardMult, 1, 100, "rewardMult"); if (m === undefined) return; cur[id].rewardMult = m; }
+        if (p.fee !== undefined)         { const f = num(p.fee, 0, 1e9, "fee");         if (f === undefined) return; cur[id].fee = f; }
+        if (p.h5 !== undefined)          { const h = num(p.h5, 0, 1e9, "h5");           if (h === undefined) return; cur[id].h5 = h; }
+        if (p.wk !== undefined)          { const w = num(p.wk, 0, 1e9, "wk");           if (w === undefined) return; cur[id].wk = w; }
       }
       await store.setPlans(cur);
       return sendJson(res, 200, { ok: true, plans: cur });

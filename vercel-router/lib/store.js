@@ -299,7 +299,12 @@ async function getUserReqs(userToken) {
  *  回傳 true 表示本月已重置（補過點） */
 async function ensureMonthlyQuota(users, token) {
   const u = users[token];
-  if (!u || !u.monthlyQuota || Number(u.monthlyQuota) <= 0) return false;
+  if (!u) return false;
+  // 訂閱到期 → 降回 free（順手寫回）
+  if (u.plan && u.plan !== "free" && u.subUntil && Date.now() > Date.parse(u.subUntil)) {
+    u.plan = "free"; u.monthlyQuota = 0;
+  }
+  if (!u.monthlyQuota || Number(u.monthlyQuota) <= 0) return false;
   const t = new Date();
   const ym = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}`;
   if (u.quotaReset === ym) return false;
@@ -360,28 +365,72 @@ async function getUsage(days) {
 }
 
 /* ── 方案（plus/pro/max/ultra 預留）：gr:plans {id:{label,monthlyQuota,rewardMult}} ── */
+/** 方案（分級容量）：fee=30天訂閱費(點) · h5/wk=每5小時/每週用量上限(點,速率配額,活動×倍率)
+ *  monthlyQuota=月重置額 · rewardMult=簽到/推薦倍率 · __v 版本遷移（舊表無fee/h5/wk → 自動換新） */
 const DEFAULT_PLANS = {
-  free:  { label: "Free",  monthlyQuota: 0,       rewardMult: 1 },
-  plus:  { label: "Plus",  monthlyQuota: 30000,   rewardMult: 1 },
-  pro:   { label: "Pro",   monthlyQuota: 100000,  rewardMult: 1 },
-  max:   { label: "Max",   monthlyQuota: 300000,  rewardMult: 1 },
-  ultra: { label: "Ultra", monthlyQuota: 1000000, rewardMult: 1 },
+  free:  { label: "Free",  monthlyQuota: 0,    rewardMult: 1,   fee: 0,    h5: 3,     wk: 20 },
+  plus:  { label: "Plus",  monthlyQuota: 30,   rewardMult: 1.5, fee: 20,   h5: 15,    wk: 120 },
+  pro:   { label: "Pro",   monthlyQuota: 150,  rewardMult: 2,   fee: 100,  h5: 80,    wk: 600 },
+  max:   { label: "Max",   monthlyQuota: 900,  rewardMult: 3,   fee: 500,  h5: 500,   wk: 3600 },
+  ultra: { label: "Ultra", monthlyQuota: 3500, rewardMult: 5,   fee: 2000, h5: 3000,  wk: 21600 },
 };
+const PLANS_VERSION = 2;
 
 async function getPlans() {
   const k = kv();
   if (!k) return JSON.parse(JSON.stringify(DEFAULT_PLANS));
   try {
     const raw = await k.get("gr:plans");
-    const p = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {};
-    return { ...JSON.parse(JSON.stringify(DEFAULT_PLANS)), ...p };
+    const p = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : null;
+    if (!p || p.__v !== PLANS_VERSION) return JSON.parse(JSON.stringify(DEFAULT_PLANS));  // 舊表作廢
+    const out = { ...p };
+    delete out.__v;
+    return { ...JSON.parse(JSON.stringify(DEFAULT_PLANS)), ...out };
   } catch { return JSON.parse(JSON.stringify(DEFAULT_PLANS)); }
 }
 
 async function setPlans(p) {
   const k = kv();
   if (!k) throw new Error("NO_KV");
-  await k.set("gr:plans", JSON.stringify(p));
+  await k.set("gr:plans", JSON.stringify({ ...p, __v: PLANS_VERSION }));
+}
+
+/** 取生效方案id：非free且逾期 → 視為free（寫回由 ensureMonthlyQuota 慰懶處理） */
+function activePlanOf(u, plans) {
+  const id = (u && u.plan) || "free";
+  if (id !== "free" && u.subUntil && Date.now() > Date.parse(u.subUntil)) return "free";
+  return plans[id] ? id : "free";
+}
+
+/** 方案配額（含活動倍率）：h5/wk 上限、月費、獎勵倍率 */
+function planCapsFor(plans, planId, ev) {
+  const p = plans[planId] || plans.free || {};
+  const m = ev ? (Number(ev.mult) || 1) : 1;
+  return { h5: (Number(p.h5) || 0) * m, wk: (Number(p.wk) || 0) * m,
+    fee: Number(p.fee) || 0, rewardMult: Number(p.rewardMult) || 1,
+    monthlyQuota: Number(p.monthlyQuota) || 0, label: p.label || planId };
+}
+
+/** 每小時用量桶：u.uh = {"YYYYMMDDHH": 點數}，只留168小時（7天） */
+const UH_KEEP = 168;
+function hourKey(d) {
+  const t = d || new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}${p(t.getHours())}`;
+}
+async function addHourlySpend(u, pts) {
+  const k = hourKey();
+  if (!u.uh || typeof u.uh !== "object") u.uh = {};
+  u.uh[k] = (Number(u.uh[k]) || 0) + (Number(pts) || 0);
+  const cut = hourKey(new Date(Date.now() - UH_KEEP * 3600000));
+  for (const key of Object.keys(u.uh)) if (key < cut) delete u.uh[key];
+}
+function hourlySpend(u, hours) {
+  if (!u || !u.uh) return 0;
+  const cut = hourKey(new Date(Date.now() - hours * 3600000));
+  let s = 0;
+  for (const [k, v] of Object.entries(u.uh)) if (k > cut) s += Number(v) || 0;
+  return s;
 }
 
 /* ── 活動：gr:event {enabled,label,mult,until}；activeEvent() 回目前有效的，否則 null ── */
@@ -516,4 +565,4 @@ async function getSpeed() {
   } catch { return []; }
 }
 
-module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, MODEL_PRICES, MODEL_SPECS, POINTS_PER_USD, costFor, logRequest, getLogs, logUserReq, getUserReqs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel, getPlans, setPlans, DEFAULT_PLANS, getEvent, setEvent, activeEvent, keyStatHash, recordKeyStat, getKeyStat, recordSpeed, getSpeed };
+module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, MODEL_PRICES, MODEL_SPECS, POINTS_PER_USD, costFor, logRequest, getLogs, logUserReq, getUserReqs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel, getPlans, setPlans, DEFAULT_PLANS, activePlanOf, planCapsFor, addHourlySpend, hourlySpend, getEvent, setEvent, activeEvent, keyStatHash, recordKeyStat, getKeyStat, recordSpeed, getSpeed };

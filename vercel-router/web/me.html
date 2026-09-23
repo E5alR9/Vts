@@ -166,6 +166,18 @@
   <section id="secAccount" style="grid-column:span 12">
     <h2>👤 帳號</h2>
     <div class="kv" id="kvMe"><div>狀態</div><div>載入中…</div></div>
+    <h2 style="margin-top:16px">💎 我的方案 <small id="planHead">載入中…</small></h2>
+    <div class="kv" id="planKv"><div>方案</div><div>載入中…</div></div>
+    <div class="grid2" style="margin-top:10px">
+      <div><label style="margin-top:0">5 小時用量</label>
+        <div class="bar"><i id="bar5" style="width:0%"></i></div>
+        <div class="muted" id="plan5txt">–</div></div>
+      <div><label style="margin-top:0">每週用量</label>
+        <div class="bar"><i id="barWk" style="width:0%"></i></div>
+        <div class="muted" id="planWktxt">–</div></div>
+    </div>
+    <div class="muted" id="planRoi" style="margin-top:8px"></div>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap" id="planBtns"></div>
     <h2 style="margin-top:16px">🎟️ 兌換邀請碼</h2>
     <div style="display:flex;gap:8px">
       <input type="text" id="invCode" placeholder="例如：X7K2-9PQ4" style="flex:1">
@@ -249,7 +261,7 @@
 
   <!-- ════════ 管理：活動（預留） ════════ -->
   <section id="secEvent" style="grid-column:span 12">
-    <h2>🎉 活動 <small>預留：啟用後全站「獎勵」（簽到 / 推薦）乘上倍率；之後要辦什麼活動改這裡就好</small></h2>
+    <h2>🎉 活動 <small>預設：啟用後全站「獎勵（簽到/推薦）＋ 方案5h/週額度」一起乘倍率；改完按儲存即生效</small></h2>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
       <div><label>開關</label><button id="evtToggle" class="primary" onclick="toggleEvent()">⚪ 未啟用</button></div>
       <div><label>活動名稱</label><input type="text" id="evtLabel" placeholder="例如：開幕雙倍" style="min-width:170px"></div>
@@ -262,11 +274,11 @@
 
   <!-- ════════ 管理：方案（預留） ════════ -->
   <section id="secPlans" style="grid-column:span 12">
-    <h2>💎 方案 <small>plus / pro / max / ultra 預留結構：月補點數 + 獎勵倍率；之後接金流直接用</small></h2>
-    <table><thead><tr><th>方案</th><th>每月補點（0=無）</th><th>獎勵倍率（簽到/推薦）</th></tr></thead>
-    <tbody id="planRows"><tr><td colspan="3" class="muted">載入中…</td></tr></tbody></table>
+    <h2>💎 方案 <small>月費 · 5h/週額度 · 月補 · 獎勵倍率 — 用戶在「帳號/點數」頁用點數訂閱</small></h2>
+    <table><thead><tr><th>方案</th><th>月費(點)</th><th>5h上限(點)</th><th>週上限(點)</th><th>月補點</th><th>獎勵倍率</th></tr></thead>
+    <tbody id="planRows"><tr><td colspan="6" class="muted">載入中…</td></tr></tbody></table>
     <div style="margin-top:10px"><button class="primary" onclick="savePlans()">💾 儲存方案</button></div>
-    <div class="muted" style="margin-top:8px">套用方式：帳號管理 → 「訂閱」選方案名（free/plus/pro/max/ultra）。選了方案的帳號每月自動補點、獎勵照倍率發。</div>
+    <div class="muted" style="margin-top:8px">用戶可在自己帳號頁用<strong>點數</strong>訂閱/降級（30天）；管理端「訂閱」鈕=直接指派（可跳過費用，發獎用）。5h/週=速率配額，活動期間×倍率。</div>
   </section>
 
   <!-- ════════ 管理：請求日誌 ════════ -->
@@ -423,6 +435,49 @@ async function redeem(){
 async function cpText(id, msg){
   try{ await navigator.clipboard.writeText($(id).textContent); toast(msg); }
   catch{ toast("複製失敗，請手動選取", true); }
+}
+
+/* ── 💎 方案：窗口用量 / 點數訂閱 / 回本ROI ── */
+async function loadPlan(){
+  if(!ME){ const h = $("planHead"); if(h) h.textContent = "此身分無帳號方案"; return; }
+  try{
+    const j = await post({ action: "plan.info" });
+    if(!j.ok) throw new Error((j.error && j.error.message) || "失敗");
+    $("planHead").textContent = (j.active ? `${j.label} · 至 ${String(j.subUntil).slice(0,10)}` : "Free")
+      + (j.ev ? ` · 🎉活動×${j.ev.mult}` : "");
+    $("planKv").innerHTML = [
+      ["方案", j.active ? `${j.label}（${String(j.subUntil).slice(0,10)} 到期）` : "Free（隨時可升/降）"],
+      ["5小時上限", j.caps.h5 ? `${fmtPts(j.caps.h5)} 點${j.ev ? ` ×${j.ev.mult} 活動中` : ""}` : "–"],
+      ["每週上限", j.caps.wk ? `${fmtPts(j.caps.wk)} 點${j.ev ? ` ×${j.ev.mult} 活動中` : ""}` : "–"],
+      ["本月 API 消耗", `${fmtPts(j.monthSpend)} 點（＝US$${fmtPts(j.monthSpend)}）`],
+      ["本週已用", `${fmtPts(j.usedWk)} / ${j.caps.wk ? fmtPts(j.caps.wk) : "∞"} 點`],
+    ].map(([k,v])=>`<div>${esc(k)}</div><div>${esc(v)}</div>`).join("");
+    const p5 = j.caps.h5 > 0 ? Math.min(100, j.used5 / j.caps.h5 * 100) : 0;
+    const pw = j.caps.wk > 0 ? Math.min(100, j.usedWk / j.caps.wk * 100) : 0;
+    const b5 = $("bar5"), bw = $("barWk");
+    b5.style.width = p5 + "%"; b5.style.background = p5 >= 80 ? "linear-gradient(90deg,#f87171,#fb7185)" : "";
+    bw.style.width = pw + "%"; bw.style.background = pw >= 80 ? "linear-gradient(90deg,#f87171,#fb7185)" : "";
+    $("plan5txt").textContent = `${fmtPts(j.used5)} / ${j.caps.h5 ? fmtPts(j.caps.h5) : "∞"} 點 · ${p5.toFixed(1)}%`;
+    $("planWktxt").textContent = `${fmtPts(j.usedWk)} / ${j.caps.wk ? fmtPts(j.caps.wk) : "∞"} 點 · ${pw.toFixed(1)}%`;
+    $("planRoi").innerHTML = j.roi
+      ? (j.roi.paid
+        ? `✅ 已回本：本月 API 用量 ${fmtPts(j.roi.spend)} 點 ≥ 方案費 ${fmtPts(j.roi.fee)} 點`
+        : `📉 未回本：本月用 ${fmtPts(j.roi.spend)} 點 / 方案費 ${fmtPts(j.roi.fee)} 點（再打 ${fmtPts(Math.max(0, j.roi.fee - j.roi.spend))} 點就回本）`)
+      : "Free：升級拿更高 5h/週額度＋簽到/推薦加倍。純付費用戶照打照扣——不設總量上限、不設 RPM 上限。";
+    $("planBtns").innerHTML = (j.plans || []).map(pl=>{
+      const cur = pl.id === j.plan;
+      return `<button class="${cur ? "" : "primary"}" ${cur ? "disabled" : ""} onclick="subPlan('${esc(pl.id)}','${esc(pl.label)}',${pl.fee})">${cur ? "✓ " : ""}${esc(pl.label)} · ${pl.fee ? pl.fee + "點/30天" : "免費"}</button>`;
+    }).join("");
+  }catch(e){ const h = $("planHead"); if(h) h.textContent = "載入失敗：" + e.message; }
+}
+async function subPlan(id, label, fee){
+  const act = id === "free" ? "回到 Free 方案（降級）" : `訂閱 ${label}（扣 ${fee} 點 / 30天）`;
+  if(!confirm(act + "？")) return;
+  try{
+    const j = await post({ action: "plan.subscribe", plan: id });
+    toast(j.message || (j.ok ? "OK" : "失敗"), !j.ok);
+    if(j.ok){ if(j.credits !== undefined) setCredits(j.credits); loadPlan(); }
+  }catch(e){ toast("失敗：" + e.message, true); }
 }
 
 /* ── 我的 API 金鑰（多把子金鑰）── */
@@ -980,8 +1035,11 @@ async function loadPromo(){
     const plans = p.plans || {};
     $("planRows").innerHTML = Object.entries(plans).map(([id, x])=>`<tr>
       <td><span class="chip ${id==="free"?"":"warn"}">${esc(id)}</span> <span class="muted">${esc(x.label||id)}</span></td>
-      <td><input type="number" data-plan="${esc(id)}" data-f="monthlyQuota" value="${esc(x.monthlyQuota||0)}" min="0" step="1000" style="max-width:170px"></td>
-      <td><input type="number" data-plan="${esc(id)}" data-f="rewardMult" value="${esc(x.rewardMult||1)}" min="1" max="100" step="0.5" style="max-width:110px"></td>
+      <td><input type="number" data-plan="${esc(id)}" data-f="fee" value="${esc(x.fee ?? 0)}" min="0" step="10" style="max-width:110px"></td>
+      <td><input type="number" data-plan="${esc(id)}" data-f="h5" value="${esc(x.h5 ?? 0)}" min="0" step="1" style="max-width:110px"></td>
+      <td><input type="number" data-plan="${esc(id)}" data-f="wk" value="${esc(x.wk ?? 0)}" min="0" step="10" style="max-width:120px"></td>
+      <td><input type="number" data-plan="${esc(id)}" data-f="monthlyQuota" value="${esc(x.monthlyQuota||0)}" min="0" step="10" style="max-width:130px"></td>
+      <td><input type="number" data-plan="${esc(id)}" data-f="rewardMult" value="${esc(x.rewardMult||1)}" min="1" max="100" step="0.5" style="max-width:100px"></td>
     </tr>`).join("");
   }catch(e){ toast("活動/方案載入失敗："+e.message, true); }
 }
@@ -1388,6 +1446,7 @@ async function loadPlayModels(){
     AKS = []; renderAk();
   }
   renderCal();
+  loadPlan();       // 💎 方案面板（窗口/訂閱/回本）
   loadPrices();   // 模型價格表 + 規格報表（兩種角色都載）
   loadSpeed();    // 實測速度折線圖（用戶自己的 / admin 全站）
   loadPlayModels();  // 試玩模型清單（全角色）
