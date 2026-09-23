@@ -14,6 +14,7 @@
   <a href="#/usage" data-nav="usage"><span class="ico">📈</span>用量明細</a>
   <div class="grp">開發者</div>
   <a href="#/api" data-nav="api"><span class="ico">🔑</span>API 金鑰</a>
+  <a href="#/prices" data-nav="prices"><span class="ico">📘</span>模型價格</a>
   <div class="grp">帳號</div>
   <a href="#/account" data-nav="account"><span class="ico">👤</span>帳號 / 點數</a>
   <div class="grp admOnly" style="display:none">管理（admin）</div>
@@ -178,6 +179,7 @@
     <div style="display:flex;gap:8px;margin-top:8px">
       <button class="primary" onclick="savePricing()">💾 儲存倍率</button>
       <button onclick="resetPricing()">恢復預設</button>
+      <button onclick="addPricingModel()">＋ 指定模型倍率</button>
     </div>
   </section>
   <section id="secInvites" style="grid-column:span 12">
@@ -268,7 +270,7 @@ function toast(msg, err){ const d=document.createElement("div"); d.textContent=m
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
 /* ── 身分 ── */
-let ME = null, IS_ADMIN = false;
+let ME = null, IS_ADMIN = false, CHART_ROWS = [];
 function token(){
   return localStorage.getItem("gr_session") || localStorage.getItem("gr_admin_token") || "";
 }
@@ -422,7 +424,8 @@ function calNav(delta){
 const PAGES = {
   dash:     ["secDash", "secStatus"],
   usage:    ["secUsage"],
-  api:      ["secApi", "secPrices"],
+  api:      ["secApi"],
+  prices:   ["secPrices"],
   account:  ["secAccount"],
   users:    ["secUsers"],
   channels: ["secChannels"],
@@ -434,10 +437,10 @@ const PAGES = {
   play:     ["secPlay"],
   system:   ["secLogin"],
 };
-const PAGE_TITLE = { dash:"儀表板", usage:"用量明細", api:"API 金鑰", account:"帳號 / 點數",
+const PAGE_TITLE = { dash:"儀表板", usage:"用量明細", api:"API 金鑰", prices:"模型價格", account:"帳號 / 點數",
   users:"帳號管理", channels:"渠道", keys:"金鑰池", billing:"計費 / 我的邀請碼",
   promo:"活動 / 方案", logs:"請求日誌", keypress:"KEY 壓力", play:"Playground", system:"系統" };
-const USER_PAGES = new Set(["dash","usage","api","account"]);
+const USER_PAGES = new Set(["dash","usage","api","prices","account"]);
 let ACTIVE = new Set(Object.keys(PAGES));
 function buildPages(){
   const main = document.querySelector("main");
@@ -458,6 +461,7 @@ function route(){
   document.querySelectorAll("[data-nav]").forEach(a =>
     a.classList.toggle("active", a.dataset.nav === target));
   const t = $("pageTitle"); if (t) t.textContent = PAGE_TITLE[target] || "";
+  if (target === "usage" && CHART_ROWS.length) drawUsageChart(CHART_ROWS);   // 切回用量頁時用真實寬度重畫折線圖
   document.body.classList.remove("nav-open");
 }
 window.addEventListener("hashchange", route);
@@ -489,6 +493,16 @@ async function savePricing(){
 async function resetPricing(){
   if(!confirm("恢復預設倍率？")) return;
   try{ await api("pricing.reset",{}); toast("已恢復預設"); loadPricing(); }
+  catch(e){ toast("失敗："+e.message, true); }
+}
+async function addPricingModel(){
+  const m = prompt("模型 ID（Groq 原始 id，例：llama-3.3-70b-versatile）：");
+  if(!m) return;
+  const v = prompt("促銷倍率（1=原價；未列價模型用它覆寫基準價，例 kimi 要按真價就填 ~13）：", "1");
+  if(v===null) return;
+  const num = Number(v);
+  if(!Number.isFinite(num) || num <= 0 || num > 100) return toast("倍率需 0~100", true);
+  try{ await api("pricing.set",{pricing:{[m.trim()]:num}}); toast("已加入 " + m.trim()); loadPricing(); }
   catch(e){ toast("失敗："+e.message, true); }
 }
 async function loadAll(){
@@ -824,41 +838,105 @@ async function loadUsage(){
     const t7 = $("st7tok"), q7 = $("st7req");
     if (t7) t7.textContent = tot;
     if (q7) q7.textContent = req;
-    // 圖：舊→新（左→右）
+    // 折線圖：舊→新（左→右）
     const days = rows.slice().reverse();
-    const max = Math.max(1, ...days.map(d=>d.tokens||0));
-    $("chart").innerHTML = days.map(d=>{
-      const h = Math.max(3, Math.round((d.tokens||0)/max*110));
-      return `<div class="b" style="height:${h}px" title="${esc(d.day)}: ${d.tokens||0} tokens / ${d.reqs||0} 次"></div>`;
-    }).join("");
     $("chartLbl").innerHTML = days.map(d=>`<span>${esc((d.day||"").slice(5))}</span>`).join("");
+    drawUsageChart(days);
   }catch(e){ $("useRows").innerHTML = `<tr><td colspan="5" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
 }
 
-/* ── 模型價格表（用戶可見，唯讀）── */
+/* ── 用量折線圖（SVG：漸層面積＋節點＋數值；切頁/縮放重畫）── */
+function drawUsageChart(rows){
+  CHART_ROWS = rows || [];
+  const box = $("chart");
+  if(!box) return;
+  if(!CHART_ROWS.length){ box.innerHTML = ""; return; }
+  const W = Math.max(320, box.clientWidth || 700);
+  const H = 170, PT = 30, PB = 16, PL = 8, PR = 8;
+  const vals = CHART_ROWS.map(d => d.tokens || 0);
+  const max = Math.max(1, ...vals);
+  const n = CHART_ROWS.length;
+  const x = i => n <= 1 ? W / 2 : PL + i * (W - PL - PR) / (n - 1);
+  const y = v => PT + (1 - v / max) * (H - PT - PB);
+  const pts = vals.map((v, i) => [x(i), y(v)]);
+  const line = pts.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
+  const area = `${line} L${x(n - 1).toFixed(1)} ${H - PB} L${x(0).toFixed(1)} ${H - PB} Z`;
+  const grid = [0.25, 0.5, 0.75, 1].map(f => {
+    const gy = (PT + (1 - f) * (H - PT - PB)).toFixed(1);
+    return `<line x1="${PL}" y1="${gy}" x2="${W - PR}" y2="${gy}" stroke="rgba(120,160,220,.09)"/>`;
+  }).join("");
+  const dots = pts.map((p, i) =>
+    `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="4" fill="#0b1220" stroke="#22d3ee" stroke-width="2"/>` +
+    `<text x="${p[0].toFixed(1)}" y="${(p[1] - 10).toFixed(1)}" text-anchor="middle" font-size="10.5" font-weight="600" fill="${vals[i] ? "#a5e8f5" : "#5d6f8c"}">${vals[i]}</text>`
+  ).join("");
+  const empty = vals.every(v => !v)
+    ? `<text x="${W / 2}" y="${H / 2 - 10}" text-anchor="middle" font-size="12" fill="#5d6f8c">近 7 天尚無用量</text>` : "";
+  box.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="uArea" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#22d3ee" stop-opacity=".32"/>
+        <stop offset="1" stop-color="#818cf8" stop-opacity="0"/>
+      </linearGradient>
+      <linearGradient id="uLine" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#c084fc"/>
+      </linearGradient>
+    </defs>
+    ${grid}
+    <path d="${area}" fill="url(#uArea)"/>
+    <path d="${line}" fill="none" stroke="url(#uLine)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    ${dots}${empty}
+  </svg>`;
+}
+let _chartRz;
+window.addEventListener("resize", () => {
+  clearTimeout(_chartRz);
+  _chartRz = setTimeout(() => { if (CHART_ROWS.length) drawUsageChart(CHART_ROWS); }, 150);
+});
+
+/* ── 模型價格表（用戶可見，唯讀；吃 /v1/models 全目錄）── */
 async function loadPrices(){
   try{
-    const r = await fetch("/api/auth?action=pricing", { headers:{Authorization:"Bearer "+token()} });
-    const j = await r.json();
+    const [j, ml] = await Promise.all([
+      fetch("/api/auth?action=pricing", { headers:{Authorization:"Bearer "+token()} }).then(r=>r.json()),
+      fetch("/v1/models", { headers:{Authorization:"Bearer "+token()} }).then(r=>r.json()).catch(()=>({})),
+    ]);
     if(!j.ok) throw new Error((j.error&&j.error.message)||"載入失敗");
     const mult = j.pricing || {}, pr = j.prices || {};
     const rate = Number(j.pointsPerUsd) || 10000000;
     const rl = $("rateLine");
     if(rl) rl.textContent = `${rate.toLocaleString()} 點 ＝ $1`;
-    const models = [...new Set([...Object.keys(mult), ...Object.keys(pr)])];
+    // 全目錄：Groq 線上清單（去掉音訊模型）∪ 已知價目 ∪ 計費表
+    const live = (ml.data||[]).map(m=>m.id).filter(id=>!/whisper|tts|audio|playai/i.test(id));
+    const priced = Object.keys(pr);
+    const rest = [...new Set([...Object.keys(mult), ...live])].filter(m=>!priced.includes(m)).sort();
+    const models = [...priced, ...rest];
     $("pricePubRows").innerHTML = models.map(m=>{
       const o = pr[m], x = mult[m];
-      const price = o ? `$${o.input} / $${o.output}` : '<span class="muted">未列</span>';
-      const chip = x === undefined ? "–" : `×${x}`;
-      const cls = x === undefined ? "" : (x > 1 ? "warn" : "ok");
+      const price = o ? `$${o.input} / $${o.output}` : '<span class="muted">未列 → 按基準 $0.075計</span>';
+      const chip = `×${x === undefined ? 1 : x}`;
+      const cls = (x === undefined || x === 1) ? "ok" : (x > 1 ? "warn" : "ok");
       return `<tr>
         <td class="code">${esc(m)}</td>
         <td class="muted">${price}</td>
         <td><span class="chip ${cls}">${chip}</span></td>
-        <td class="muted">${o ? esc(o.note || "") : ""}</td>
+        <td class="muted">${o ? esc(o.note || "") : "促銷係數可在💰計費表改"}</td>
       </tr>`;
     }).join("") || '<tr><td colspan="4" class="muted">尚無資料</td></tr>';
   }catch(e){ $("pricePubRows").innerHTML = `<tr><td colspan="4" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
+}
+
+/* ── Playground：模型清單從 /v1/models 動態載入（全模型中轉）── */
+async function loadPlayModels(){
+  try{
+    const r = await fetch("/v1/models", { headers:{Authorization:"Bearer "+token()} });
+    const j = await r.json();
+    const ids = (j.data||[]).map(m=>m.id).filter(id=>!/whisper|tts|audio|playai/i.test(id));
+    if(!ids.length) return;
+    const keep = $("playModel").value;
+    $("playModel").innerHTML = ids.map(id=>`<option value="${esc(id)}">${esc(id)}</option>`).join("");
+    if(ids.includes(keep)) $("playModel").value = keep;
+    if(!ids.includes($("playModel").value) && ids.includes("qwen/qwen3.8-27b")) $("playModel").value = "qwen/qwen3.8-27b";
+  }catch{ /* 拿不到就保留內建4個 */ }
 }
 
 /* ── 啟動：同一頁，角色決定分頁 ── */
@@ -915,7 +993,7 @@ async function loadPrices(){
   }
   renderCal();
   loadPrices();   // 模型價格表（兩種角色都載）
-  if(IS_ADMIN){ loadAll(); loadChannels(); loadLogs(); loadPromo(); loadKeyPress(); }   // loadAll 內含 usage/invites/pricing/keys/users
+  if(IS_ADMIN){ loadAll(); loadChannels(); loadLogs(); loadPromo(); loadKeyPress(); loadPlayModels(); }   // loadAll 內含 usage/invites/pricing/keys/users
   else { loadUsage(); }
 })();
 </script>

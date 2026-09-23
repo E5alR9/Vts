@@ -188,6 +188,17 @@ const DEFAULT_PRICING = {
   "openai/gpt-oss-120b": 1,
   "openai/gpt-oss-20b": 1,
   "allam-2-7b": 1,
+  "llama-3.3-70b-versatile": 1,
+  "llama-3.1-8b-instant": 1,
+  "meta-llama/llama-4-scout-17b-16e-instruct": 1,
+  "meta-llama/llama-4-maverick-17b-128e-instruct": 1,
+  "deepseek-r1-distill-llama-70b": 1,
+  "gemma2-9b-it": 1,
+  "moonshotai/kimi-k2-instruct": 1,
+  "llama-guard-3-8b": 1,
+  "qwen/qwen3-235b-a22b": 1,
+  "compound-beta": 1,
+  "compound-beta-mini": 1,
 };
 const PRICING_VERSION = 2;
 
@@ -419,6 +430,18 @@ const MODEL_PRICES = {
   "openai/gpt-oss-120b": { input: 0.15,  output: 0.6,  note: "推理較強" },
   "openai/gpt-oss-20b":  { input: 0.075, output: 0.3,  note: "計費基準（1x）" },
   "allam-2-7b":          { input: 0,     output: 0,    note: "未定價（0 計）" },
+  // ── 全模型中轉：Groq 常用目錄（價格為參考，未列模型按基準價計）──
+  "llama-3.3-70b-versatile": { input: 0.59, output: 0.79, note: "Llama3.3 70B 參考" },
+  "llama-3.1-8b-instant":    { input: 0.05, output: 0.08, note: "Llama3.1 8B 速 參考" },
+  "meta-llama/llama-4-scout-17b-16e-instruct":  { input: 0.11, output: 0.34, note: "Llama4 Scout 參考" },
+  "meta-llama/llama-4-maverick-17b-128e-instruct": { input: 0.20, output: 0.60, note: "Llama4 Maverick 參考" },
+  "deepseek-r1-distill-llama-70b": { input: 0.75, output: 0.99, note: "DeepSeek-R1 蒸餾 參考" },
+  "gemma2-9b-it":         { input: 0.20, output: 0.20, note: "Gemma2 9B 參考" },
+  "moonshotai/kimi-k2-instruct": { input: 1.00, output: 3.00, note: "Kimi K2 參考" },
+  "llama-guard-3-8b":     { input: 0.20, output: 0.20, note: "安全審查 參考" },
+  "qwen/qwen3-235b-a22b": { input: 0.20, output: 0.60, note: "Qwen3 235B 參考" },
+  "compound-beta":        { input: 0.50, output: 0.80, note: "Groq 自動路由 參考" },
+  "compound-beta-mini":   { input: 0.10, output: 0.50, note: "自動路由 mini 參考" },
 };
 
 module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, MODEL_PRICES, POINTS_PER_USD, costFor, logRequest, getLogs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel, getPlans, setPlans, DEFAULT_PLANS, getEvent, setEvent, activeEvent, keyStatHash, recordKeyStat, getKeyStat };

@@ -1,34 +1,55 @@
 /**
- * GET /v1/models — 轉發 Groq 的模型清單（讓 OpenAI 相容客戶端的「列出模型」功能可用）
+ * GET /v1/models — 全模型中轉：直通 Groq 完整目錄（6h 快取 + 靜態兜底）
+ * 任何登入身分可用；音訊模型（whisper/tts）也照轉，聊天端點用到才會上游報錯。
  */
 const MODELS_URL = "https://api.groq.com/openai/v1/models";
 
 const store = require("../lib/store");
 const libAuth = require("../lib/auth");
 
+// warm instance 記憶體快取（cold start 重新抓）
+let CACHE = { at: 0, text: "" };
+const TTL = 6 * 3600 * 1000;
+
+function staticFallback() {
+  // 上游掛了的最後手段：本側已知價目當目錄
+  return JSON.stringify({
+    object: "list",
+    data: Object.keys(store.MODEL_PRICES).map((id) => ({ id, object: "model", owned_by: "groq" })),
+  });
+}
+
+function reply(res, status, text) {
+  res.statusCode = status;
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.end(text);
+}
+
 module.exports = async (req, res) => {
-  if (req.method !== "GET") {
-    res.statusCode = 405;
-    return res.end(JSON.stringify({ error: "GET only" }));
-  }
+  if (req.method !== "GET") return reply(res, 405, JSON.stringify({ error: "GET only" }));
 
   const a = await libAuth.auth(req);
-  if (!a.ok) {
-    res.statusCode = 401;
-    res.setHeader("Content-Type", "application/json");
-    return res.end(JSON.stringify({ error: { message: "unauthorized" } }));
-  }
+  if (!a.ok) return reply(res, 401, JSON.stringify({ error: { message: "unauthorized" } }));
+
+  // 快取有效 → 直接回
+  if (CACHE.text && Date.now() - CACHE.at < TTL) return reply(res, 200, CACHE.text);
 
   const keys = (await store.allKeys()).map((k) => k.key);
-  if (!keys.length) {
-    res.statusCode = 500;
-    res.setHeader("Content-Type", "application/json");
-    return res.end(JSON.stringify({ error: { message: "未設定 GROQ_KEYS" } }));
-  }
+  if (!keys.length) return reply(res, 500, JSON.stringify({ error: { message: "未設定 GROQ_KEYS" } }));
 
-  const upstream = await fetch(MODELS_URL, { headers: { Authorization: `Bearer ${keys[0]}` } });
-  const text = await upstream.text();
-  res.statusCode = upstream.status;
-  res.setHeader("Content-Type", upstream.headers.get("content-type") || "application/json");
-  res.end(text);
+  try {
+    const upstream = await fetch(MODELS_URL, { headers: { Authorization: `Bearer ${keys[0]}` } });
+    const text = await upstream.text();
+    if (upstream.ok) {
+      CACHE = { at: Date.now(), text };
+      return reply(res, 200, text);
+    }
+    // 上游非 2xx：有舊快取就給舊的（比直接炸掉好），否則照轉錯誤
+    if (CACHE.text) return reply(res, 200, CACHE.text);
+    return reply(res, upstream.status, text);
+  } catch {
+    // 網路炸 → 快取 or 靜態目錄
+    if (CACHE.text) return reply(res, 200, CACHE.text);
+    return reply(res, 200, staticFallback());
+  }
 };
