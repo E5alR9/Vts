@@ -505,7 +505,7 @@ async function resetPricing(){
 async function addPricingModel(){
   const m = prompt("模型 ID（Groq 原始 id，例：llama-3.3-70b-versatile）：");
   if(!m) return;
-  const v = prompt("促銷倍率（1=原價；未列價模型用它覆寫基準價，例 kimi 要按真價就填 ~13）：", "1");
+  const v = prompt("促銷倍率（1=原價；日後 Groq 出新模型沒價目時，用它覆寫基準價）：", "1");
   if(v===null) return;
   const num = Number(v);
   if(!Number.isFinite(num) || num <= 0 || num > 100) return toast("倍率需 0~100", true);
