@@ -114,7 +114,7 @@ module.exports = async (req, res) => {
     const a = await libAuth.auth(req);
     if (!a.ok) return sendJson(res, 401, { error: { message: "unauthorized" } });
     // admin 也能直接聊天（不扣點）
-    caller = { kind: a.kind, user: a.user };
+    caller = { kind: a.kind, user: a.user, sub: a.sub };   // sub = 子金鑰資訊（有申請多把金鑰時）
   }
   // user 帳號：訂閱月補（當月首次自動補點）→ 點數預檢（-1 = 無限）
   if (caller.kind === "user" && caller.user) {
