@@ -297,6 +297,7 @@ module.exports = async (req, res) => {
           const total = u2.pt + u2.ct;
           const cost = store.costFor(model, u2.pt, u2.ct, await store.getPricing());
           let billedLeft = null, planFedFlag = false;
+          let win5 = null, winWk = null, cap5 = 0, capWk = 0;   // 方案用量%（給前端顯示）
           if (caller.kind === "user" && caller.user.credits !== -1) {
             try {
               const users = (await store.getUsers()) || {};
@@ -307,6 +308,11 @@ module.exports = async (req, res) => {
                 u.usedTokens = (Number(u.usedTokens) || 0) + total;
                 if (caller.sub) { const kk = (u.keys || []).find((x) => x.id === caller.sub.id); if (kk) kk.lastUsed = Date.now(); }
                 await store.addHourlySpend(u, cost);   // 計入5h/週配額桶（吃到飽也計）
+                if (PLAN_CAPS && PLAN_CAPS.h5 > 0) {   // 付費方案才有額度可報
+                  win5 = store.hourlySpend(u, 5);
+                  winWk = store.hourlySpend(u, 168);
+                  cap5 = PLAN_CAPS.h5; capWk = PLAN_CAPS.wk;
+                }
                 await store.setUsers(users);
                 billedLeft = u.credits;
                 await store.recordUsage(caller.user.token, model, total, cost);
@@ -329,6 +335,7 @@ module.exports = async (req, res) => {
               inject.x_value = cost;                    // 市價（ROI/展示用）
               inject.x_left = billedLeft;
               inject.x_plan = planFedFlag ? 1 : 0;
+              if (win5 !== null) inject.x_win = { u5: win5, c5: cap5, uw: winWk, cw: capWk };   // 方案用量%
             }
             res.write(`data: ${JSON.stringify(inject)}\n\n`);
             res.write("data: [DONE]\n\n");

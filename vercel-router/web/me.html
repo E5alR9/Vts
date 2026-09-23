@@ -907,7 +907,7 @@ async function playRun(){
   const bub = addMsg("ai", '<span class="cursor">▍</span>');
   const btn = $("playBtn");
   if(btn) btn.disabled = true;
-  let ans = "", why = "", usage = null, xCost = null, xLeft = null, xValue = null, xPlan = 0;
+  let ans = "", why = "", usage = null, xCost = null, xLeft = null, xValue = null, xPlan = 0, xWin = null;
   const paint = (cursor) => {
     bub.innerHTML = (why ? `<div class="reason">🤔 ${esc(why)}</div>` : "") + md(ans) + (cursor ? '<span class="cursor">▍</span>' : "");
     box.scrollTop = box.scrollHeight;
@@ -942,6 +942,7 @@ async function playRun(){
           if(j.x_left !== undefined && j.x_left !== null) xLeft = j.x_left;
           if(j.x_value !== undefined) xValue = j.x_value;
           if(j.x_plan) xPlan = 1;
+          if(j.x_win) xWin = j.x_win;
           const d = (j.choices && j.choices[0] && j.choices[0].delta) || {};
           why += d.reasoning_content || d.reasoning || "";
           ans += d.content || "";
@@ -954,6 +955,11 @@ async function playRun(){
     if(xCost !== null && xLeft !== null){
       if(xPlan === 1){
         parts.push(`💎 方案吃到飽：本發實扣 <b>0</b> 點（市價 ${fmtPts(xValue ?? xCost)} 點方案內行使）· 餘額 <b>${fmtPts(xLeft)}</b> 未動`);
+        if(xWin && xWin.c5 > 0){
+          const p5 = Math.min(100, xWin.u5 / xWin.c5 * 100);
+          const pw = xWin.cw > 0 ? Math.min(100, xWin.uw / xWin.cw * 100) : 0;
+          parts.push(`📊 方案用量 5h ${fmtPts(xWin.u5)}/${fmtPts(xWin.c5)}（${p5.toFixed(1)}%）· 週 ${fmtPts(xWin.uw)}/${fmtPts(xWin.cw)}（${pw.toFixed(1)}%）`);
+        }
       } else {
         parts.push(`💰 本次扣 <b>${fmtPts(xCost)}</b> 點（1點＝US$1，照官方價算）· 餘額 <b>${fmtPts(xLeft)}</b> 點`);
         setCredits(xLeft);
