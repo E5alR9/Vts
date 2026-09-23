@@ -412,9 +412,10 @@ module.exports = async (req, res) => {
     // ── KEY 壓力（僅流量統計、零內容；管理員限定）──
     if (action === "keypress") {
       const s = await store.getKeyStat();
-      const limit = Math.max(1, Number(process.env.KEY_RPM_LIMIT) || 30);
+      const limit = Math.max(1, Number(process.env.KEY_RPM_LIMIT) || 1000);   // 預設=官方開發層單把 1K RPM
       const labelBy = {};
-      for (const k of store.envKeys()) labelBy[store.mask(k)] = "env";
+      const envList = store.envKeys();
+      for (const k of envList) labelBy[store.mask(k)] = "env";
       const managed = (await store.getManagedKeys()) || [];
       for (const k of managed) labelBy[k.prefix || store.mask(k.key)] = k.label || "管理";
       const now = Date.now();
@@ -424,7 +425,10 @@ module.exports = async (req, res) => {
           reqs: e.reqs || 0, tokens: e.tokens || 0, errs: e.errs || 0,
           rpm, pressure: Math.min(100, Math.round((rpm / limit) * 100)) };
       }).sort((x, y) => y.rpm - x.rpm || y.reqs - x.reqs);
-      return sendJson(res, 200, { ok: true, day: s.day || "", limit, keys: list });
+      const pool = { env: envList.length,
+        managed: managed.filter((k) => !k.disabled).length };
+      pool.total = pool.env + pool.managed;
+      return sendJson(res, 200, { ok: true, day: s.day || "", limit, pool, keys: list });
     }
 
     // ── 計費表（模型倍率；扣點 = tokens × 倍率）──

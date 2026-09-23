@@ -256,6 +256,12 @@
   <!-- ════════ 管理：KEY 壓力表 ════════ -->
   <section id="secKeyPress" style="grid-column:span 12">
     <h2>📶 每把 KEY 的 Token 壓力 <small>僅管理員 · 只有流量數字，零訊息內容（ZDR）</small></h2>
+    <div class="stats">
+      <div class="stat"><div class="v" id="kpPool">–</div><div class="l" id="kpPoolL">可用金鑰</div></div>
+      <div class="stat"><div class="v" id="kpCap">–</div><div class="l" id="kpCapL">推估總容量 RPM</div></div>
+      <div class="stat"><div class="v" id="kpNow">–</div><div class="l" id="kpNowL">目前實際 RPM</div></div>
+      <div class="stat"><div class="v" id="kpTpm">–</div><div class="l" id="kpTpmL">推估總 TPM</div></div>
+    </div>
     <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
       <button class="primary" onclick="loadKeyPress()">↻ 更新</button>
       <span class="muted" id="kpDay">–</span>
@@ -263,7 +269,7 @@
     </div>
     <table><thead><tr><th>金鑰</th><th>來源</th><th>今日請求</th><th>今日 tokens</th><th>錯誤</th><th>壓力（近 1 分鐘）</th></tr></thead>
     <tbody id="kpRows"><tr><td colspan="6" class="muted">載入中…</td></tr></tbody></table>
-    <div class="muted" style="margin-top:8px">壓力 ＝ 近 1 分鐘請求 ÷ <code>KEY_RPM_LIMIT</code>（env，預設 30）。≥80% 亮紅（快被 429 了，考慮加分攤或降權重）。</div>
+    <div class="muted" style="margin-top:8px">壓力 ＝ 近 1 分鐘請求 ÷ <code>KEY_RPM_LIMIT</code>（env，預設 <b>1000</b> ＝ 官方開發層單把）。上方總容量為<strong>推估</strong>＝可用把數 × 單把 1K RPM / 250K TPM；若 Groq 實際按 <b>org 級</b>限流（同 org 的 key 共用額度），真實總量以先撞 429 的為準。≥80% 亮紅 → 考慮停用該把或調降渠道權重。</div>
   </section>
 
   <!-- ════════ 管理：系統（登入方式） ════════ -->
@@ -871,6 +877,21 @@ async function loadKeyPress(){
     const j = await api("keypress");
     $("kpDay").textContent = j.day ? `統計日 ${j.day}` : "尚無統計";
     $("kpLimit").textContent = `每分鐘上限 ${j.limit}（env KEY_RPM_LIMIT）`;
+    // ── 推估總容量（可用把數 × 單把官方限流）──
+    const pool = j.pool || { env: 0, managed: 0, total: 0 };
+    const nowRpm = (j.keys || []).reduce((s, k) => s + (k.rpm || 0), 0);
+    const cap = pool.total * (j.limit || 1000);
+    const pct = cap ? Math.round(nowRpm / cap * 1000) / 10 : 0;
+    const fmt = n => n.toLocaleString();
+    $("kpPool").textContent = pool.total + " 把";
+    $("kpPoolL").textContent = `可用金鑰（env ${pool.env} + 管理 ${pool.managed} · 渠道另計）`;
+    $("kpCap").textContent = fmt(cap);
+    $("kpCapL").textContent = `推估總容量 RPM（${pool.total} 把 × ${fmt(j.limit || 1000)}/把）`;
+    $("kpNow").textContent = fmt(nowRpm);
+    $("kpNowL").textContent = `目前實際 RPM（負載 ${pct}%）`;
+    const tpm = pool.total * 250000;
+    $("kpTpm").textContent = tpm >= 1e6 ? (tpm / 1e6).toLocaleString() + "M" : fmt(tpm);
+    $("kpTpmL").textContent = `推估總 TPM（${pool.total} 把 × 250K/把 · 官方開發層）`;
     $("kpRows").innerHTML = (j.keys||[]).map(k=>{
       const cls = k.pressure >= 80 ? "bad" : k.pressure >= 50 ? "warn" : "ok";
       const st = k.rpm === 0 ? "空閒" : k.pressure >= 80 ? "高壓" : k.pressure >= 50 ? "偏高" : "正常";
