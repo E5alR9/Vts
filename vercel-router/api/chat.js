@@ -109,7 +109,16 @@ module.exports = async (req, res) => {
     // admin 也能直接聊天（不扣點）
     caller = { kind: a.kind, user: a.user };
   }
-  // user 帳號：點數預檢（-1 = 無限）
+  // user 帳號：訂閱月補（當月首次自動補點）→ 點數預檢（-1 = 無限）
+  if (caller.kind === "user" && caller.user) {
+    try {
+      const users = (await store.getUsers()) || {};
+      if (users[caller.user.token] && await store.ensureMonthlyQuota(users, caller.user.token)) {
+        await store.setUsers(users);
+        caller.user.credits = users[caller.user.token].credits;
+      }
+    } catch { /* 月補失敗不擋路 */ }
+  }
   if (caller.kind === "user" && caller.user.credits !== -1 && (Number(caller.user.credits) || 0) <= 0) {
     return sendJson(res, 402, { error: { message: "點數不足，請聯繫管理員充值", code: "insufficient_credits" } });
   }
@@ -181,6 +190,8 @@ module.exports = async (req, res) => {
                 await store.setUsers(users);
                 res.setHeader("x-credits-left", String(u.credits));
                 await store.recordUsage(caller.user.token, model, cost);
+                await store.logRequest({ user: caller.user.name || caller.user.token.slice(0, 12),
+                  model, tokens: cost, cost });
               }
             } catch { /* 忽略 */ }
           }
@@ -211,6 +222,8 @@ module.exports = async (req, res) => {
               await store.setUsers(users);
               res.setHeader("x-credits-left", String(u.credits));
               await store.recordUsage(caller.user.token, model, cost);
+              await store.logRequest({ user: caller.user.name || caller.user.token.slice(0, 12),
+                model, tokens: cost, cost });
             }
           } catch { /* 扣點失敗不影響已生成的回應 */ }
         }

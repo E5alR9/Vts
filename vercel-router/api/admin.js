@@ -137,6 +137,7 @@ module.exports = async (req, res) => {
       const users = (await store.getUsers()) || {};
       const list = Object.entries(users).map(([token, u]) => ({
         token, name: u.name, role: u.role, credits: u.credits,
+        plan: u.plan || "free", monthlyQuota: u.monthlyQuota || 0,
         disabled: !!u.disabled, createdAt: u.createdAt || "",
       }));
       return sendJson(res, 200, { ok: true, users: list });
@@ -181,8 +182,17 @@ module.exports = async (req, res) => {
         u.credits = c;
       }
       if (f.disabled !== undefined) u.disabled = !!f.disabled;
+      if (f.plan !== undefined) u.plan = String(f.plan || "free");       // 方案名（free/月費方案名）
+      if (f.monthlyQuota !== undefined) {
+        const q = Number(f.monthlyQuota);
+        if (!Number.isFinite(q) || q < 0) {
+          return sendJson(res, 400, { ok: false, error: { message: "monthlyQuota 需為 >=0（0=無月補）" } });
+        }
+        u.monthlyQuota = q;
+      }
       await store.setUsers(users);
-      return sendJson(res, 200, { ok: true, user: { name: u.name, role: u.role, credits: u.credits, disabled: !!u.disabled } });
+      return sendJson(res, 200, { ok: true, user: { name: u.name, role: u.role, credits: u.credits,
+        disabled: !!u.disabled, plan: u.plan || "free", monthlyQuota: u.monthlyQuota || 0 } });
     }
     if (action === "users.delete") {
       // 真刪（KV 移除）。admin 帳號至少要留一個。
@@ -256,6 +266,12 @@ module.exports = async (req, res) => {
       delete inv[body.code];
       await store.setInvites(inv);
       return sendJson(res, 200, { ok: true });
+    }
+
+    // ── 請求日誌（最新 100 筆）──
+    if (action === "logs") {
+      const logs = await store.getLogs();
+      return sendJson(res, 200, { ok: true, logs });
     }
 
     // ── 計費表（模型倍率；扣點 = tokens × 倍率）──

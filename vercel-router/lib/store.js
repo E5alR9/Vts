@@ -139,11 +139,16 @@ function newInviteCode() {
   return s.slice(0, 4) + "-" + s.slice(4);
 }
 
-/** 計費表：gr:pricing JSON {model: multiplier}；沒有就回預設 */
+/** 計費表：gr:pricing JSON {model: multiplier}；沒有就回預設
+ *
+ *  倍率 = Groq 官方 input 價 ÷ 基準（gpt-oss-20b $0.075/1M）：
+ *    20b  $0.075 → 1x ｜ 120b $0.15 → 2x ｜ qwen3.8 $0.80 → 10x ｜ allam 未定價 → 0.5x
+ *  （output 約貴 4~5 倍，但中轉站按 total_tokens 單一倍率簡化計費）
+ */
 const DEFAULT_PRICING = {
-  "qwen/qwen3.8-27b": 1,
+  "qwen/qwen3.8-27b": 10,
   "openai/gpt-oss-20b": 1,
-  "openai/gpt-oss-120b": 3,
+  "openai/gpt-oss-120b": 2,
   "allam-2-7b": 0.5,
 };
 
@@ -168,6 +173,49 @@ async function setPricing(p) {
 function priceFor(pricing, model) {
   const m = Number(pricing[model]);
   return Number.isFinite(m) && m > 0 ? m : 1;
+}
+
+/** 請求日誌：gr:logs JSON array（最新在前，只留 100 筆）
+ *  entry = {t, user, model, tokens, cost} */
+async function logRequest(entry) {
+  const k = kv();
+  if (!k) return;
+  try {
+    let logs = [];
+    try {
+      const raw = await k.get("gr:logs");
+      logs = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : [];
+      if (!Array.isArray(logs)) logs = [];
+    } catch { logs = []; }
+    logs.unshift({ t: Date.now(), ...entry });
+    await k.set("gr:logs", JSON.stringify(logs.slice(0, 100)));
+  } catch { /* 日誌失敗不影響 */ }
+}
+
+async function getLogs() {
+  const k = kv();
+  if (!k) return [];
+  try {
+    const raw = await k.get("gr:logs");
+    const logs = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : [];
+    return Array.isArray(logs) ? logs : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 訂閱制：當月首次使用自動補點
+ *  user.plan: 'free'（無）| 方案名；user.monthlyQuota: 每月額度；user.quotaReset: 'YYYY-MM'
+ *  回傳 true 表示本月已重置（補過點） */
+async function ensureMonthlyQuota(users, token) {
+  const u = users[token];
+  if (!u || !u.monthlyQuota || Number(u.monthlyQuota) <= 0) return false;
+  const t = new Date();
+  const ym = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}`;
+  if (u.quotaReset === ym) return false;
+  u.quotaReset = ym;
+  if (u.credits !== -1) u.credits = Number(u.monthlyQuota);
+  return true;
 }
 
 /** 用量記錄：gr:usage:{yyyymmdd} JSON {token: {tokens, reqs, models:{m:n}}} + user.usedTokens 累加 */
@@ -215,4 +263,4 @@ async function getUsage(days) {
   return out;
 }
 
-module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING };
+module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, logRequest, getLogs, ensureMonthlyQuota };
