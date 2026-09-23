@@ -19,6 +19,7 @@
   <a href="#/play" data-nav="play"><span class="ico">🧪</span>Playground 試玩</a>
   <div class="grp">帳號</div>
   <a href="#/account" data-nav="account"><span class="ico">👤</span>帳號 / 點數</a>
+  <a href="#/plan" data-nav="plan"><span class="ico">💎</span>方案 / 訂閱</a>
   <div class="grp admOnly" style="display:none">管理（admin）</div>
   <a class="admOnly" style="display:none" href="#/users" data-nav="users"><span class="ico">👥</span>帳號管理</a>
   <a class="admOnly" style="display:none" href="#/channels" data-nav="channels"><span class="ico">🔀</span>渠道</a>
@@ -168,18 +169,6 @@
   <section id="secAccount" style="grid-column:span 12">
     <h2>👤 帳號</h2>
     <div class="kv" id="kvMe"><div>狀態</div><div>載入中…</div></div>
-    <h2 style="margin-top:16px">💎 我的方案 <small id="planHead">載入中…</small></h2>
-    <div class="kv" id="planKv"><div>方案</div><div>載入中…</div></div>
-    <div class="grid2" style="margin-top:10px">
-      <div><label style="margin-top:0">5 小時用量</label>
-        <div class="bar"><i id="bar5" style="width:0%"></i></div>
-        <div class="muted" id="plan5txt">–</div></div>
-      <div><label style="margin-top:0">每週用量</label>
-        <div class="bar"><i id="barWk" style="width:0%"></i></div>
-        <div class="muted" id="planWktxt">–</div></div>
-    </div>
-    <div class="muted" id="planRoi" style="margin-top:8px"></div>
-    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap" id="planBtns"></div>
     <h2 style="margin-top:16px">🎟️ 兌換邀請碼</h2>
     <div style="display:flex;gap:8px">
       <input type="text" id="invCode" placeholder="例如：X7K2-9PQ4" style="flex:1">
@@ -194,6 +183,23 @@
       <div>我的來源</div><div id="refFrom">–（自己註冊）</div>
     </div>
     <div class="muted" style="margin-top:8px">朋友貼上你的碼（或開你的專屬連結）兌換 → 雙方各拿一筆獎勵（<code>REFERRAL_CREDITS</code>，活動期間再乘倍率）。可收多張不同朋友的碼；同一張不可重複兌。</div>
+  </section>
+
+  <!-- ════════ 💎 方案 / 訂閱（獨立分頁） ════════ -->
+  <section id="secPlan" style="grid-column:span 12">
+    <h2>💎 方案 / 訂閱 <small id="planHead">載入中…</small></h2>
+    <div class="kv" id="planKv"><div>方案</div><div>載入中…</div></div>
+    <div class="grid2" style="margin-top:10px">
+      <div><label style="margin-top:0">5 小時用量</label>
+        <div class="bar"><i id="bar5" style="width:0%"></i></div>
+        <div class="muted" id="plan5txt">–</div></div>
+      <div><label style="margin-top:0">每週用量</label>
+        <div class="bar"><i id="barWk" style="width:0%"></i></div>
+        <div class="muted" id="planWktxt">–</div></div>
+    </div>
+    <div class="muted" id="planRoi" style="margin-top:8px"></div>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap" id="planBtns"></div>
+    <div class="muted" style="margin-top:8px">訂閱＝30天制：付點數 → 期間 <b>API 吃到飽</b>（5h/週窗口是上限，完全不動餘額），到期自動回 Free 照官方價扣；隨時可降回 Free（不退費）。</div>
   </section>
 
   <!-- ════════ 管理：帳號管理 ════════ -->
@@ -277,10 +283,10 @@
   <!-- ════════ 管理：方案（預留） ════════ -->
   <section id="secPlans" style="grid-column:span 12">
     <h2>💎 方案 <small>月費 · 5h/週額度 · 月補 · 獎勵倍率 — 用戶在「帳號/點數」頁用點數訂閱</small></h2>
-    <table><thead><tr><th>方案</th><th>月費(點)</th><th>5h上限(點)</th><th>週上限(點)</th><th>月補點</th><th>獎勵倍率</th><th>API折扣</th></tr></thead>
-    <tbody id="planRows"><tr><td colspan="7" class="muted">載入中…</td></tr></tbody></table>
+    <table><thead><tr><th>方案</th><th>月費(點)</th><th>5h上限(點)</th><th>週上限(點)</th><th>月補點</th><th>獎勵倍率</th></tr></thead>
+    <tbody id="planRows"><tr><td colspan="6" class="muted">載入中…</td></tr></tbody></table>
     <div style="margin-top:10px"><button class="primary" onclick="savePlans()">💾 儲存方案</button></div>
-    <div class="muted" style="margin-top:8px">用戶可在自己帳號頁用<strong>點數</strong>訂閱/降級（30天）；管理端「訂閱」鈕=直接指派（可跳過費用，發獎用）。<b>Free＝純付費</b>(0=不限制)；<b>付費檔生效期間＝API吃到飽不扣點</b>（5h/週額滿→429等滾動），月補/折扣照發。</div>
+    <div class="muted" style="margin-top:8px">用戶在側欄「💎 方案 / 訂閱」頁用<strong>點數</strong>自己訂閱/降級（30天）；管理端「訂閱」鈕=直接指派（可跳過費用，發獎用）。<b>Free＝純付費</b>(0=不限制)；<b>付費檔生效期間＝API吃到飽不扣點</b>（5h/週額滿→429等滾動），月補照發。</div>
   </section>
 
   <!-- ════════ 管理：請求日誌 ════════ -->
@@ -454,7 +460,6 @@ async function loadPlan(){
       ["本月 API 消耗", `${fmtPts(j.monthSpend)} 點（＝US$${fmtPts(j.monthSpend)}）`],
       ["本週已用", `${fmtPts(j.usedWk)} / ${j.caps.wk ? fmtPts(j.caps.wk) : "∞"} 點`],
       ["月補 / 月費", `${fmtPts(j.caps.monthlyQuota)} / ${fmtPts(j.fee)} 點`],
-      ["API 扣點折扣", j.caps.disc < 1 ? `×${j.caps.disc} — 比直接付費省 ${Math.round((1 - j.caps.disc) * 100)}%` : "×1 原價（＝官方價直轉，與直接付費同價）"],
       ["計費模式", j.active ? "吃到飽：訂閱期間 API 完全不動點數（5h/週額滿 → 429 等滾動）" : "純付費：照官方價扣點、無窗口"],
     ].map(([k,v])=>`<div>${esc(k)}</div><div>${esc(v)}</div>`).join("");
     const p5 = j.caps.h5 > 0 ? Math.min(100, j.used5 / j.caps.h5 * 100) : 0;
@@ -468,10 +473,10 @@ async function loadPlan(){
       ? (j.roi.paid
         ? `✅ 已回本：本月 API 用量 ${fmtPts(j.roi.spend)} 點 ≥ 方案費 ${fmtPts(j.roi.fee)} 點`
         : `📉 未回本：本月用 ${fmtPts(j.roi.spend)} 點 / 方案費 ${fmtPts(j.roi.fee)} 點（再打 ${fmtPts(Math.max(0, j.roi.fee - j.roi.spend))} 點就回本）`)
-      : "Free ＝ 純付費用戶：打多少扣多少，不設5h/週額度、不設 RPM、不設總量。付費方案＝<b>API 吃到飽（完全不扣點）</b>＋月補＋簽到加倍＋5h/週額度＋API 折扣（管理頁可調）。";
+      : "Free ＝ 純付費用戶：打多少扣多少，不設5h/週額度、不設 RPM、不設總量。付費方案＝<b>API 吃到飽（完全不扣點）</b>＋月補＋簽到加倍＋5h/週額度（管理頁可調）。";
     $("planBtns").innerHTML = (j.plans || []).map(pl=>{
       const cur = pl.id === j.plan;
-      return `<button class="${cur ? "" : "primary"}" ${cur ? "disabled" : ""} onclick="subPlan('${esc(pl.id)}','${esc(pl.label)}',${pl.fee})">${cur ? "✓ " : ""}${esc(pl.label)} · ${pl.fee ? pl.fee + "點/30天" : "免費"}${pl.disc < 1 ? " · API×" + pl.disc : ""}</button>`;
+      return `<button class="${cur ? "" : "primary"}" ${cur ? "disabled" : ""} onclick="subPlan('${esc(pl.id)}','${esc(pl.label)}',${pl.fee})">${cur ? "✓ " : ""}${esc(pl.label)} · ${pl.fee ? pl.fee + "點/30天" : "免費"}</button>`;
     }).join("");
     //儀表板💎方案卡同步
     const dh = $("dashPlanHead"); if(dh) dh.textContent = $("planHead").textContent;
@@ -634,6 +639,7 @@ const PAGES = {
   api:      ["secApi"],
   prices:   ["secPrices"],
   account:  ["secAccount"],
+  plan:     ["secPlan"],
   users:    ["secUsers"],
   channels: ["secChannels"],
   keys:     ["secKeys"],
@@ -644,10 +650,10 @@ const PAGES = {
   play:     ["secPlay"],
   system:   ["secLogin"],
 };
-const PAGE_TITLE = { dash:"儀表板", usage:"用量明細", api:"API 金鑰", prices:"模型價格", account:"帳號 / 點數",
+const PAGE_TITLE = { dash:"儀表板", usage:"用量明細", api:"API 金鑰", prices:"模型價格", account:"帳號 / 點數", plan:"方案 / 訂閱",
   users:"帳號管理", channels:"渠道", keys:"金鑰池", billing:"計費 / 我的邀請碼",
   promo:"活動 / 方案", logs:"請求日誌", keypress:"KEY 壓力", play:"Playground", system:"系統" };
-const USER_PAGES = new Set(["dash","usage","api","prices","play","account"]);
+const USER_PAGES = new Set(["dash","usage","api","prices","play","account","plan"]);
 let ACTIVE = new Set(Object.keys(PAGES));
 function buildPages(){
   const main = document.querySelector("main");
@@ -1060,7 +1066,6 @@ async function loadPromo(){
       <td><input type="number" data-plan="${esc(id)}" data-f="wk" value="${esc(x.wk ?? 0)}" min="0" step="10" style="max-width:120px"></td>
       <td><input type="number" data-plan="${esc(id)}" data-f="monthlyQuota" value="${esc(x.monthlyQuota||0)}" min="0" step="10" style="max-width:130px"></td>
       <td><input type="number" data-plan="${esc(id)}" data-f="rewardMult" value="${esc(x.rewardMult||1)}" min="1" max="100" step="0.5" style="max-width:100px"></td>
-      <td><input type="number" data-plan="${esc(id)}" data-f="disc" value="${esc(x.disc ?? 1)}" min="0.01" max="1" step="0.05" style="max-width:90px"></td>
     </tr>`).join("");
   }catch(e){ toast("活動/方案載入失敗："+e.message, true); }
 }

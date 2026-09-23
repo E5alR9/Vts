@@ -294,9 +294,7 @@ module.exports = async (req, res) => {
           const u2 = (realUsage && Number.isFinite(realUsage.completion_tokens))
             ? { pt: realUsage.prompt_tokens, ct: realUsage.completion_tokens } : est;
           const total = u2.pt + u2.ct;
-          const base1 = store.costFor(model, u2.pt, u2.ct, await store.getPricing());
-          const disc1 = (PLAN_CAPS && PLAN_CAPS.disc) || 1;
-          const cost = disc1 === 1 ? base1 : Math.max(0.000001, Math.round(base1 * disc1 * 1e6) / 1e6);
+          const cost = store.costFor(model, u2.pt, u2.ct, await store.getPricing());
           let billedLeft = null, planFedFlag = false;
           if (caller.kind === "user" && caller.user.credits !== -1) {
             try {
@@ -345,10 +343,8 @@ module.exports = async (req, res) => {
         const text = await upstream.text();
         const usage = parseUsage(text) || estimateTokens(body);
         const realTokens = usage.pt + usage.ct;
-        // 直接按官方價 × 方案折扣（Free=原價1.0）
-        const base0 = store.costFor(model, usage.pt, usage.ct, await store.getPricing());
-        const disc0 = (PLAN_CAPS && PLAN_CAPS.disc) || 1;
-        const cost = disc0 === 1 ? base0 : Math.max(0.000001, Math.round(base0 * disc0 * 1e6) / 1e6);
+        // 計費：直接按官方價（訂閱期間此值只進窗口/ROI，不動餘額；Free 則照扣）
+        const cost = store.costFor(model, usage.pt, usage.ct, await store.getPricing());
         try { await store.recordKeyStat(gkey, { tokens: realTokens }); } catch {}
         try { await store.recordSpeed({ model, tokens: realTokens,
           tps: realTokens / Math.max(0.05, (Date.now() - t0) / 1000),
