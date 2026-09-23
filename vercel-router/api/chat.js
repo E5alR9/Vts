@@ -173,6 +173,7 @@ module.exports = async (req, res) => {
       const idx = nextKeyIdx(roundKeys);
       if (idx < 0) break;
       const gkey = roundKeys[idx];
+      const t0 = Date.now();   // 速度量測起點（這把 key 的上游耗時）
 
       const init = {
         method: "POST",
@@ -206,13 +207,13 @@ module.exports = async (req, res) => {
 
         if (wantStream) {
           // 串流沒有 usage → 估 input/output 分開計官方價，先扣（header 要在 end 前設）
+          const est = estimateTokens(body);
+          const total = est.pt + est.ct;
           if (caller.kind === "user" && caller.user.credits !== -1) {
             try {
               const users = (await store.getUsers()) || {};
               const u = users[caller.user.token];
               if (u && u.credits !== -1) {
-                const est = estimateTokens(body);
-                const total = est.pt + est.ct;
                 const cost = store.costFor(model, est.pt, est.ct, await store.getPricing());
                 u.credits = Math.max(0, (Number(u.credits) || 0) - cost);
                 u.usedTokens = (Number(u.usedTokens) || 0) + total;
@@ -224,7 +225,7 @@ module.exports = async (req, res) => {
               }
             } catch { /* 忽略 */ }
           }
-          try { await store.recordKeyStat(gkey, { tokens: estimateTokens(body).pt + estimateTokens(body).ct }); } catch {}
+          try { await store.recordKeyStat(gkey, { tokens: total }); } catch {}
           res.statusCode = 200;
           res.setHeader("Content-Type", upstream.headers.get("content-type") || "text/event-stream");
           res.setHeader("Cache-Control", "no-cache");
@@ -236,6 +237,10 @@ module.exports = async (req, res) => {
             // 上游中斷就直接收尾，客戶端會看到不完整的 SSE
           }
           res.end();
+          // 實測速度：完成 tokens ÷ 上游耗時（串流含客戶端讀取，僅供參考）
+          try { await store.recordSpeed({ model, tokens: total,
+            tps: total / Math.max(0.05, (Date.now() - t0) / 1000),
+            u: caller.user ? caller.user.token : caller.kind }); } catch {}
           return;
         }
 
@@ -245,6 +250,9 @@ module.exports = async (req, res) => {
         // 直接按官方價：(in×input價 + out×output價) × 促銷係數 × 匯率
         const cost = store.costFor(model, usage.pt, usage.ct, await store.getPricing());
         try { await store.recordKeyStat(gkey, { tokens: realTokens }); } catch {}
+        try { await store.recordSpeed({ model, tokens: realTokens,
+          tps: realTokens / Math.max(0.05, (Date.now() - t0) / 1000),
+          u: caller.user ? caller.user.token : caller.kind }); } catch {}
         // 先扣點再 end（header 必須在 end 之前設，否則發不出去）
         if (caller.kind === "user" && caller.user.credits !== -1) {
           try {

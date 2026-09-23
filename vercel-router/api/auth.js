@@ -172,7 +172,15 @@ module.exports = async (req, res) => {
     if (action === "pricing") {
       return sendJson(res, 200, { ok: true,
         pricing: await store.getPricing(), prices: store.MODEL_PRICES,
+        specs: store.MODEL_SPECS,
         defaults: store.DEFAULT_PRICING, pointsPerUsd: store.POINTS_PER_USD });
+    }
+
+    // ── 實測速度（每個時刻的 t/s）：用戶看自己的，admin 看全站 ──
+    if (action === "speed") {
+      const arr = await store.getSpeed();
+      const out = a.kind === "admin" ? arr : arr.filter((e) => e.u === (a.user ? a.user.token : ""));
+      return sendJson(res, 200, { ok: true, points: out.slice(-60) });
     }
 
     // ── 我的帳號 ──

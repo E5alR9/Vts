@@ -425,7 +425,7 @@ async function getKeyStat() {
 /** 模型官方參考價（$/1M tokens，input/output；以 Groq 公告為準）
  *  扣點規則：站內實付 = total_tokens × 倍率（倍率見 DEFAULT_PRICING） */
 const MODEL_PRICES = {
-  "qwen/qwen3.8-27b":    { input: 0.80,  output: 3.2,  note: "主力對話" },
+  "qwen/qwen3.8-27b":    { input: 0.80,  output: 4.0,  note: "主力對話（官方 $0.8/$4.0）" },
   "qwen/qwen3-32b":      { input: 0.60,  output: 2.4,  note: "備援梯隊" },
   "openai/gpt-oss-120b": { input: 0.15,  output: 0.6,  note: "推理較強" },
   "openai/gpt-oss-20b":  { input: 0.075, output: 0.3,  note: "計費基準（1x）" },
@@ -444,4 +444,50 @@ const MODEL_PRICES = {
   "compound-beta-mini":   { input: 0.10, output: 0.50, note: "自動路由 mini 參考" },
 };
 
-module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, MODEL_PRICES, POINTS_PER_USD, costFor, logRequest, getLogs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel, getPlans, setPlans, DEFAULT_PLANS, getEvent, setEvent, activeEvent, keyStatHash, recordKeyStat, getKeyStat };
+/** 模型規格表（Groq 官方 console 資料：速度 T/s、開發層限流、上下文、最長輸出、檔案上限）
+ *  tps=null 表官方未公布；note 註記未開放/類型 */
+const MODEL_SPECS = {
+  "qwen/qwen3.8-27b":    { tps: 450,  limits: "250K TPM · 1K RPM", ctx: 131042, maxOut: 16384,  file: "20 MB", note: "主力對話" },
+  "openai/gpt-oss-120b": { tps: 500,  limits: "250K TPM · 1K RPM", ctx: 131072, maxOut: 65536,  file: "-", note: "推理較強" },
+  "openai/gpt-oss-20b":  { tps: 1000, limits: "250K TPM · 1K RPM", ctx: 131072, maxOut: 65536,  file: "-", note: "最快 · 計費基準" },
+  "allam-2-7b":          { tps: null, limits: "—",                ctx: null,   maxOut: null,   file: "-", note: "官方表未列（免費）" },
+  "llama-3.3-70b-versatile": { tps: 280, limits: "Contact Sales", ctx: 131072, maxOut: 32768,  file: "-", note: "⚠ 你 org 未開放" },
+  "llama-3.1-8b-instant":    { tps: 560, limits: "Contact Sales", ctx: 131072, maxOut: 131072, file: "-", note: "⚠ 你 org 未開放" },
+  "minimaxai/minimax-m2.7":  { tps: 260, limits: "Contact Sales", ctx: 196608, maxOut: 131072, file: "-", note: "Preview · 未在你的目錄" },
+  "openai/gpt-oss-safeguard-20b": { tps: 1000, limits: "150K TPM · 1K RPM", ctx: 131072, maxOut: 65536, file: "-", note: "安全模型" },
+  "meta-llama/llama-prompt-guard-2-22m": { tps: null, limits: "30K TPM · 100 RPM", ctx: 512, maxOut: 512, file: "-", note: "安全審查 · $0.03" },
+  "meta-llama/llama-prompt-guard-2-86m": { tps: null, limits: "30K TPM · 100 RPM", ctx: 512, maxOut: 512, file: "-", note: "安全審查 · $0.04" },
+  "whisper-large-v3":        { tps: null, limits: "200K ASH · 300 RPM", ctx: null, maxOut: null, file: "100 MB", note: "STT · $0.111/時" },
+  "whisper-large-v3-turbo":  { tps: null, limits: "400K ASH · 400 RPM", ctx: null, maxOut: null, file: "100 MB", note: "STT · $0.04/時" },
+  "canopylabs/orpheus-v1-english":      { tps: null, limits: "50K TPM · 250 RPM", ctx: 4000, maxOut: 50000, file: "-", note: "TTS · $22/1M字元" },
+  "canopylabs/orpheus-arabic-saudi":    { tps: null, limits: "50K TPM · 250 RPM", ctx: 4000, maxOut: 50000, file: "-", note: "TTS · $40/1M字元" },
+};
+
+/** 實測速度環：gr:speed JSON array（最多240筆，留2天）· {t, model, tokens, tps, u} */
+async function recordSpeed(e) {
+  const k = kv();
+  if (!k) return;
+  try {
+    let arr = [];
+    try {
+      const raw = await k.get("gr:speed");
+      arr = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : [];
+      if (!Array.isArray(arr)) arr = [];
+    } catch { arr = []; }
+    arr.push({ t: Date.now(), model: e.model, tokens: e.tokens,
+      tps: Math.round((Number(e.tps) || 0) * 10) / 10, u: e.u || "" });
+    await k.set("gr:speed", JSON.stringify(arr.slice(-240)), { ex: 2 * 86400 });
+  } catch { /* 速度記錄失敗不影響回應 */ }
+}
+
+async function getSpeed() {
+  const k = kv();
+  if (!k) return [];
+  try {
+    const raw = await k.get("gr:speed");
+    const arr = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+}
+
+module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, MODEL_PRICES, MODEL_SPECS, POINTS_PER_USD, costFor, logRequest, getLogs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel, getPlans, setPlans, DEFAULT_PLANS, getEvent, setEvent, activeEvent, keyStatHash, recordKeyStat, getKeyStat, recordSpeed, getSpeed };

@@ -431,7 +431,7 @@ module.exports = async (req, res) => {
     if (action === "pricing") {
       const pricing = await store.getPricing();
       return sendJson(res, 200, { ok: true, pricing, defaults: store.DEFAULT_PRICING, prices: store.MODEL_PRICES,
-        pointsPerUsd: store.POINTS_PER_USD });
+        specs: store.MODEL_SPECS, pointsPerUsd: store.POINTS_PER_USD });
     }
     if (action === "pricing.set") {
       const p = body.pricing || {};
