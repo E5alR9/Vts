@@ -192,6 +192,23 @@ main{margin-left:218px;max-width:calc(1360px + 218px);padding-top:22px}
   box-shadow:0 0 0 2px rgba(34,211,238,.25)}
 .cal-grid .day.today.on{color:#06121f}
 .cal-grid .day.mute{opacity:.35}
+/* ── 帳號下拉選單 ── */
+.acct{position:relative}
+.acct button.pill{cursor:pointer;transition:border-color .15s, box-shadow .15s}
+.acct button.pill:hover{border-color:var(--acc);box-shadow:0 4px 14px rgba(34,211,238,.18)}
+.acct-menu{position:absolute;right:0;top:calc(100% + 8px);min-width:240px;z-index:90;
+  background:rgba(14,20,34,.97);border:1px solid var(--line2);border-radius:14px;
+  padding:7px;box-shadow:var(--shadow);backdrop-filter:blur(14px)}
+.acct-head{padding:9px 11px 8px;border-bottom:1px solid var(--line);margin-bottom:5px}
+.acct-head b{font-size:14px}
+.acct-head .chip{margin-left:6px}
+.acct-head .muted{font-size:11.5px;margin-top:4px}
+.acct-menu a{display:flex;gap:9px;align-items:center;padding:8px 11px;border-radius:9px;
+  color:var(--txt);font-size:13px;cursor:pointer;text-decoration:none;transition:background .12s}
+.acct-menu a:hover{background:rgba(56,189,248,.12)}
+.acct-menu a.danger-a{color:#fda4af}
+.acct-menu a.danger-a:hover{background:rgba(251,113,133,.14);color:var(--bad)}
+.acct-menu .sep{height:1px;background:var(--line);margin:5px 4px}
 /* ── 開關 ── */
 .switch{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px dashed rgba(120,160,220,.12)}
 .switch:last-child{border-bottom:none}
