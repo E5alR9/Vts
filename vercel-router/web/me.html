@@ -198,6 +198,9 @@
         <div class="muted" id="planWktxt">–</div></div>
     </div>
     <div class="muted" id="planRoi" style="margin-top:8px"></div>
+    <h2 style="margin-top:16px">📐 用量限制對照表 <small>「不設」＝完全無限制 · 單位＝點（US$1）· 活動期間 5h/週 上限×倍率</small></h2>
+    <table><thead><tr><th>方案</th><th>月費</th><th>5h 上限</th><th>週上限</th><th>月補</th><th>簽到/推薦</th><th>訂閱期間計費</th></tr></thead>
+    <tbody id="planCmpRows"><tr><td colspan="7" class="muted">載入中…</td></tr></tbody></table>
     <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap" id="planBtns"></div>
     <div id="planRenew" style="margin-top:8px"></div>
     <div class="muted" style="margin-top:8px">訂閱＝30天制：付點數 → 期間 <b>API 吃到飽</b>（5h/週窗口是上限，完全不動餘額），到期自動回 Free 照官方價扣；隨時可降回 Free（不退費）。</div>
@@ -483,6 +486,19 @@ async function loadPlan(){
       const cur = pl.id === j.plan;
       return `<button class="${cur ? "" : "primary"}" ${cur ? "disabled" : ""} onclick="subPlan('${esc(pl.id)}','${esc(pl.label)}',${pl.fee})">${cur ? "✓ " : ""}${esc(pl.label)} · ${pl.fee ? pl.fee + "點/30天" : "免費"}</button>`;
     }).join("");
+    // 📐 用量限制對照表（當前方案亮勾+底色）
+    $("planCmpRows").innerHTML = (j.plans || []).map(pl => {
+      const cur = pl.id === j.plan;
+      return `<tr${cur ? ' style="background:rgba(52,211,153,.06)"' : ""}>
+        <td><span class="chip ${cur ? "ok" : (pl.id === "free" ? "" : "warn")}">${cur ? "✓ " : ""}${esc(pl.label)}</span></td>
+        <td>${pl.fee ? `${fmtPts(pl.fee)} 點 / 30天` : "免費"}</td>
+        <td>${pl.h5 > 0 ? fmtPts(pl.h5) + " 點" : "不設"}</td>
+        <td>${pl.wk > 0 ? fmtPts(pl.wk) + " 點" : "不設"}</td>
+        <td>${pl.monthlyQuota > 0 ? "+" + fmtPts(pl.monthlyQuota) + " 點/月" : "–"}</td>
+        <td>×${pl.rewardMult}</td>
+        <td>${pl.id === "free" ? '<span class="muted">照官方價扣點</span>' : '<span class="chip ok">吃到飽不扣點</span>'}</td>
+      </tr>`;
+    }).join("") || '<tr><td colspan="7" class="muted">尚無資料</td></tr>';
     // 續約狀態列：自動續約中 / 已取消（權益留到到期）
     const rr = $("planRenew");
     if (rr) {
