@@ -803,7 +803,7 @@ async function playRun(){
   const bub = addMsg("ai", '<span class="cursor">▍</span>');
   const btn = $("playBtn");
   if(btn) btn.disabled = true;
-  let ans = "", why = "";
+  let ans = "", why = "", usage = null;
   const paint = (cursor) => {
     bub.innerHTML = (why ? `<div class="reason">🤔 ${esc(why)}</div>` : "") + md(ans) + (cursor ? '<span class="cursor">▍</span>' : "");
     box.scrollTop = box.scrollHeight;
@@ -831,9 +831,10 @@ async function playRun(){
         const s = raw.trim();
         if(!s.startsWith("data:")) continue;
         const p = s.slice(5).trim();
-        if(p === "[DONE]"){ over = true; break; }
+        if(p === "[DONE]") continue;              // 不提早收尾：中轉補的 usage chunk 在 [DONE] 之後
         try{
           const j = JSON.parse(p);
+          if(j.usage) usage = j.usage;            // 後面覆蓋前面 → 最終取中轉補的估算(=扣點依據)
           const d = (j.choices && j.choices[0] && j.choices[0].delta) || {};
           why += d.reasoning_content || d.reasoning || "";
           ans += d.content || "";
@@ -841,14 +842,18 @@ async function playRun(){
       }
       if(ans || why) paint(true);
     }
-    // 收尾：扣點明細
-    let tail = "";
+    // 收尾：扣點明細 + token 用量
+    const parts = [];
     if(leftH !== null && before !== null && before !== -1){
       const left = Number(leftH);
       const spent = Math.max(0, before - left);
-      tail = `<div class="costline">💰 本次扣 <b>${fmtPts(spent)}</b> 點（1點＝US$1，照官方價算）· 餘額 <b>${fmtPts(left)}</b> 點</div>`;
+      parts.push(`💰 本次扣 <b>${fmtPts(spent)}</b> 點（1點＝US$1，照官方價算）· 餘額 <b>${fmtPts(left)}</b> 點`);
       setCredits(left);
     }
+    if(usage && usage.total_tokens){
+      parts.push(`🔤 <b>${usage.total_tokens}</b> tokens（in ${usage.prompt_tokens ?? "?"} / out ${usage.completion_tokens ?? "?"}${usage.estimated ? " · 約估＝扣點依據" : ""}）`);
+    }
+    const tail = parts.length ? `<div class="costline">${parts.join(" · ")}</div>` : "";
     bub.innerHTML = (why ? `<div class="reason">🤔 ${esc(why)}</div>` : "") + md(ans) + tail;
     box.scrollTop = box.scrollHeight;
     if(IS_ADMIN) loadLogs();

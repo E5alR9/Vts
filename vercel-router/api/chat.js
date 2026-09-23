@@ -238,6 +238,12 @@ module.exports = async (req, res) => {
           } catch {
             // 上游中斷就直接收尾，客戶端會看到不完整的 SSE
           }
+          // 補一發 usage chunk：與扣點同一套估算（串流上游未必給 usage），讓前端顯示 token 用量
+          try {
+            res.write(`data: ${JSON.stringify({ choices: [], usage: {
+              prompt_tokens: est.pt, completion_tokens: est.ct, total_tokens: total, estimated: true } })}\n\n`);
+            res.write("data: [DONE]\n\n");
+          } catch { /* 客戶端已斷線就跳過 */ }
           res.end();
           // 實測速度：完成 tokens ÷ 上游耗時（串流含客戶端讀取，僅供參考）
           try { await store.recordSpeed({ model, tokens: total,
