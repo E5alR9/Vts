@@ -153,12 +153,8 @@ module.exports = async (req, res) => {
       }
     } catch { /* 月補失敗不擋路 */ }
   }
-  if (caller.kind === "user" && caller.user.credits !== -1 && (Number(caller.user.credits) || 0) <= 0) {
-    return sendJson(res, 402, { error: { message: "點數不足，請聯繫管理員充值", code: "insufficient_credits" } });
-  }
-
-  // 方案速率配額：每5小時 / 每週上限（點數口徑；活動期間×倍率）。總量不設限、RPM不設限——只分級管速率
-  let PLAN_CAPS = null;   // 提升到外層：扣點時用它的 disc（API方案折扣）
+  // 方案先算（窗口 + 是否吃到飽），再做餘額預檢
+  let PLAN_CAPS = null;   // 扣點時用它的 disc（API方案折扣）與 fee（>0=吃到飽）
   if (caller.kind === "user" && caller.user) {
     try {
       const users0 = (await store.getUsers()) || {};
@@ -180,6 +176,12 @@ module.exports = async (req, res) => {
         }
       }
     } catch { /* 配額檢查失敗不擋路 */ }
+  }
+
+  // 付費方案生效 = 吃到飽（API不扣點）→ 餘額0也放行；Free 才做402預檢
+  const planFed = !!(PLAN_CAPS && PLAN_CAPS.fee > 0);
+  if (!planFed && caller.kind === "user" && caller.user.credits !== -1 && (Number(caller.user.credits) || 0) <= 0) {
+    return sendJson(res, 402, { error: { message: "點數不足，請聯繫管理員充值", code: "insufficient_credits" } });
   }
 
   const keyObjs = await store.allKeys();
@@ -295,16 +297,17 @@ module.exports = async (req, res) => {
           const base1 = store.costFor(model, u2.pt, u2.ct, await store.getPricing());
           const disc1 = (PLAN_CAPS && PLAN_CAPS.disc) || 1;
           const cost = disc1 === 1 ? base1 : Math.max(0.000001, Math.round(base1 * disc1 * 1e6) / 1e6);
-          let billedLeft = null;
+          let billedLeft = null, planFedFlag = false;
           if (caller.kind === "user" && caller.user.credits !== -1) {
             try {
               const users = (await store.getUsers()) || {};
               const u = users[caller.user.token];
               if (u && u.credits !== -1) {
-                u.credits = Math.max(0, (Number(u.credits) || 0) - cost);
+                planFedFlag = !!(PLAN_CAPS && PLAN_CAPS.fee > 0);   // 吃到飽不扣點
+                if (!planFedFlag) u.credits = Math.max(0, (Number(u.credits) || 0) - cost);
                 u.usedTokens = (Number(u.usedTokens) || 0) + total;
                 if (caller.sub) { const kk = (u.keys || []).find((x) => x.id === caller.sub.id); if (kk) kk.lastUsed = Date.now(); }
-                await store.addHourlySpend(u, cost);   // 計入5h/週配額桶
+                await store.addHourlySpend(u, cost);   // 計入5h/週配額桶（吃到飽也計）
                 await store.setUsers(users);
                 billedLeft = u.credits;
                 await store.recordUsage(caller.user.token, model, total, cost);
@@ -322,7 +325,12 @@ module.exports = async (req, res) => {
             const inject = { choices: [], usage: {
               prompt_tokens: u2.pt, completion_tokens: u2.ct, total_tokens: total,
               estimated: !realUsage } };
-            if (billedLeft !== null) { inject.x_cost = cost; inject.x_left = billedLeft; }
+            if (billedLeft !== null) {
+              inject.x_cost = planFedFlag ? 0 : cost;   // 實扣（方案吃到飽=0）
+              inject.x_value = cost;                    // 市價（ROI/展示用）
+              inject.x_left = billedLeft;
+              inject.x_plan = planFedFlag ? 1 : 0;
+            }
             res.write(`data: ${JSON.stringify(inject)}\n\n`);
             res.write("data: [DONE]\n\n");
           } catch { /* 客戶端已斷線就跳過 */ }
@@ -351,12 +359,14 @@ module.exports = async (req, res) => {
             const users = (await store.getUsers()) || {};
             const u = users[caller.user.token];
             if (u && u.credits !== -1) {
-              u.credits = Math.max(0, (Number(u.credits) || 0) - cost);
+              const fed = !!(PLAN_CAPS && PLAN_CAPS.fee > 0);   // 付費方案=吃到飽不扣點
+              if (!fed) u.credits = Math.max(0, (Number(u.credits) || 0) - cost);
               u.usedTokens = (Number(u.usedTokens) || 0) + realTokens;
               if (caller.sub) { const kk = (u.keys || []).find((x) => x.id === caller.sub.id); if (kk) kk.lastUsed = Date.now(); }
-              await store.addHourlySpend(u, cost);   // 計入5h/週配額桶
+              await store.addHourlySpend(u, cost);   // 計入5h/週配額桶（吃到飽也計，窗口才會滾動攔）
               await store.setUsers(users);
               res.setHeader("x-credits-left", String(u.credits));
+              if (fed) res.setHeader("x-plan-usage", "1");   // 本發方案內行使、免扣
               await store.recordUsage(caller.user.token, model, realTokens, cost);
               await store.logRequest({ user: caller.user.name || caller.user.token.slice(0, 12),
                 key: caller.sub ? caller.sub.name : undefined,
