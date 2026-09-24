@@ -243,9 +243,15 @@ module.exports = async (req, res) => {
         }
       } catch {}
       const fee = caps.fee;
+      // 續約差款狀態：方案欄位還在、未取消、已到期、餘額<月費 → 顯示給用戶（補足後任一入口自動補續）
+      const renewShort = !!(u.plan && u.plan !== "free" && !u.subCancel && u.subUntil &&
+        Date.now() > Date.parse(u.subUntil) && u.credits !== -1 &&
+        (Number(u.credits) || 0) < (Number((plans[u.plan] || {}).fee) || 0));
       return sendJson(res, 200, { ok: true, plan: pid, label: caps.label,
         active: pid !== "free", subUntil: u.subUntil || "",
         autoRenew: !u.subCancel, subCancel: !!u.subCancel,
+        renewShort, renewNeed: renewShort ? (Number((plans[u.plan] || {}).fee) || 0) : 0,
+        renewPlan: renewShort ? u.plan : "", credits: u.credits,
         caps, ev: ev ? { mult: ev.mult, label: ev.label, until: ev.until } : null,
         used5, usedWk, monthSpend, fee,
         roi: fee > 0 ? { fee, spend: monthSpend, paid: monthSpend >= fee } : null,
