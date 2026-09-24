@@ -189,20 +189,22 @@ module.exports = async (req, res) => {
   const keys = keyObjs.map((k) => k.key);
   if (!keys.length) return sendJson(res, 500, { error: { message: "未設定 GROQ_KEYS" } });
 
-  // 方案優先權：RPM 吃緊（冷卻中金鑰佔比高）→ 低階方案先讓路，高階照打
-  // 階層：free0 < plus1 < pro2 < max3 < ultra4；壓力≥50%要plus↑、≥75%要pro↑、≥90%要max↑
+  // 方案優先權（排隊不擋路）：RPM 吃緊（冷卻金鑰占比高）→ 先跑高方案，Free 只是慢、永不拒絕
+  // 延遲階梯：≥50%冷卻 Free+3s ｜ ≥75% Free+6s·Plus+2s ｜ ≥90% Free+10s·Plus+5s·Pro+2s ｜ Max/Ultra 永遠即時
   if (caller.kind === "user" && PLAN_CAPS) {
     const now2 = Date.now();
     let cooling = 0;
     for (const gk of keys) if ((STATE.cooldownUntil.get("k:" + gk) || 0) > now2) cooling++;
     const pressure = keys.length ? cooling / keys.length : 0;
-    const tier = { free: 0, plus: 1, pro: 2, max: 3, ultra: 4 }[PLAN_CAPS.id] !== undefined
-      ? { free: 0, plus: 1, pro: 2, max: 3, ultra: 4 }[PLAN_CAPS.id] : 0;
-    const need = pressure >= 0.9 ? 3 : pressure >= 0.75 ? 2 : pressure >= 0.5 ? 1 : -1;
-    if (need >= 0 && tier < need) {
-      const needName = need >= 3 ? "Max / Ultra" : need === 2 ? "Pro 以上" : "Plus 以上";
-      return sendJson(res, 429, { error: { message:
-        `系統 RPM 吃緊（${Math.round(pressure * 100)}% 金鑰冷卻中），此壓力層優先服務${needName} — 升級方案取得優先權，或稍後再試`, code: "rpm_priority" } });
+    const tmap = { free: 0, plus: 1, pro: 2, max: 3, ultra: 4 };
+    const tier = tmap[PLAN_CAPS.id] !== undefined ? tmap[PLAN_CAPS.id] : 0;
+    let wait = 0;
+    if (pressure >= 0.9)       wait = tier === 0 ? 10000 : tier === 1 ? 5000 : tier === 2 ? 2000 : 0;
+    else if (pressure >= 0.75) wait = tier === 0 ? 6000  : tier === 1 ? 2000 : 0;
+    else if (pressure >= 0.5)  wait = tier === 0 ? 3000  : 0;
+    if (wait > 0) {
+      try { res.setHeader("x-priority-wait", String(wait)); } catch {}
+      await new Promise((r) => setTimeout(r, wait));   // 讓高方案先跑；free只是慢，不擋
     }
   }
 
