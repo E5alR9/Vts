@@ -88,7 +88,7 @@
       <button class="cal-nav" onclick="calNav(-1)" aria-label="上個月">‹</button>
       <span id="calTitle">–</span>
       <button class="cal-nav" onclick="calNav(1)" aria-label="下個月">›</button>
-      <span class="muted">🟦 已簽到 · ○ 今天</span>
+      <span class="muted">🟦 已簽到 · ○ 今天 · 連簽加成7天×1.5 ·14天×2 ·30天×3</span>
       <button class="primary" id="btnCheckin" onclick="checkin()">📅 簽到 +10</button>
     </div>
     <div class="cal-grid" id="calGrid"></div>
@@ -182,7 +182,7 @@
       <div>我推薦了</div><div id="refCount">0 人</div>
       <div>我的來源</div><div id="refFrom">–（自己註冊）</div>
     </div>
-    <div class="muted" style="margin-top:8px">朋友貼上你的碼（或開你的專屬連結）兌換 → 雙方各拿一筆獎勵（<code>REFERRAL_CREDITS</code>，活動期間再乘倍率）。可收多張不同朋友的碼；同一張不可重複兌。</div>
+    <div class="muted" style="margin-top:8px">朋友貼上你的碼（或開你的專屬連結）兌換 → <b>你和朋友「雙向各 +100 點」</b>（活動期間再 ×倍率）。可收多張不同朋友的碼；同一張不可重複兌；不能兌自己的。</div>
   </section>
 
   <!-- ════════ 💎 方案 / 訂閱（獨立分頁） ════════ -->
@@ -203,7 +203,18 @@
     <tbody id="planCmpRows"><tr><td colspan="6" class="muted">載入中…</td></tr></tbody></table>
     <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap" id="planBtns"></div>
     <div id="planRenew" style="margin-top:8px"></div>
-    <div class="muted" style="margin-top:8px">訂閱＝30天制：付點數 → 期間 <b>API 吃到飽</b>（5h/週窗口是上限，完全不動餘額），到期自動回 Free 照官方價扣；隨時可降回 Free（不退費）。<br><b>回饋不靠月補</b>——靠<b>每日簽到</b>（Plus ×1.5＝450/月）＋推薦碼雙向；<b>月費</b>＝30天的入場費。額度設計＝<b>月含額≈月費×2</b>（Plus：10/週 → 一個月約43 點免費額度 vs 直接付20只有20用量）：打滿就是2倍回本，重度用量一定撞牆（429等滾動）。<br><b>RPM 優先權（排隊不擋路）</b>：系統吃緊時<b>先跑高方案、Free 變慢但不會被拒絕</b>——≥50%金鑰冷卻：Free 等3s、Plus↑即時；≥75%：Free 6s、Plus 2s、Pro↑即時；≥90%：Free 10s、Plus 5s、Pro 2s、Max/Ultra 永遠即時。</div>
+    <div class="muted" style="margin-top:8px"><b>回饋不靠月補</b>——靠每日簽到＋推薦碼；<b>月費</b>＝30天入場費。<b>月含額≈月費×2</b>：打滿就是2倍回本。</div>
+    <h2 style="margin-top:18px">📖 完整規則 <small>訂閱 · 到期 · 回饋 · 優先權 · 活動，一次看懂</small></h2>
+    <div class="rules">
+      <div class="rule"><b>① 訂閱＝吃到飽</b>：付月費取得30天；期間 API <b>完全不動你的餘額</b>，上限只有 5h / 週窗口——額滿 → 429「等滾動」，不會多收你半毛。</div>
+      <div class="rule"><b>② 到期三態</b>：餘額夠 → <b>自動扣月費續約</b>30天；餘額不夠 → <b>不續約、乾淨轉 Free</b>（餘額不動、之後補款也不回頭，要繼續就再按一次訂閱鈕）；主動取消 → <b>權益完整保留到到期日</b>才轉 Free。</div>
+      <div class="rule"><b>③ Free ＝ 純付費</b>：照官方價（×1）扣點，不設5h/週額度、不設 RPM、不設總量——餘額就是唯一的限制。</div>
+      <div class="rule"><b>④ 回饋管道</b>：每日簽到 <b>10 點</b>（×方案倍率；<b>連簽加成：7天×1.5 · 14天×2 · 30天×3</b>，三者連乘）＋ 推薦碼 <b>雙向各 +100</b>（可收多張不同碼、同一張限兌一次、不能兌自己的）。</div>
+      <div class="rule"><b>⑤ RPM 優先權（排隊，永不擋 Free）</b>：金鑰冷卻 ≥50% → Free 等3s、Plus↑即時；≥75% → Free6s、Plus2s、Pro↑即時；≥90% → Free10s、Plus5s、Pro2s、<b>Max/Ultra 永遠即時</b>。延遲寫在 <code>x-priority-wait</code> header 可查。</div>
+      <div class="rule"><b>⑥ 活動倍率</b>：🎉 活動期間，「簽到 / 推薦 / 方案5h與週上限」<b>全部 ×N</b>（管理頁一開關即生效，到期日自動失效）。</div>
+      <div class="rule"><b>⑦ 划算公式</b>：月含額≈月費×2（Plus：10/週 → 月約43 免費額 vs 直接付20只有20用量）＋簽到差額——訂閱嚴格划算，打滿2倍回本、重度會撞窗。</div>
+      <div class="rule"><b>⑧ 降級自由</b>：隨時按 Free 降回（不退費），帳上點數照樣能花；方案表數字全部可在管理端 🎉活動/方案 即改即生效。</div>
+    </div>
   </section>
 
   <!-- ════════ 管理：帳號管理 ════════ -->

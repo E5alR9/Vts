@@ -213,6 +213,11 @@ main{margin-left:218px;max-width:calc(1360px + 218px);padding-top:22px}
 .acct-menu a.danger-a{color:#fda4af}
 .acct-menu a.danger-a:hover{background:rgba(251,113,133,.14);color:var(--bad)}
 .acct-menu .sep{height:1px;background:var(--line);margin:5px 4px}
+/* ── 📖 完整規則 ── */
+.rules{display:flex;flex-direction:column;gap:7px;margin-top:6px}
+.rule{border-left:3px solid rgba(34,211,238,.5);background:rgba(6,10,20,.45);
+  padding:8px 12px;border-radius:0 9px 9px 0;font-size:12.5px;line-height:1.75}
+.rule b{color:#a5e8f5}
 /* ── Playground 聊天式（串流氣泡 + session 清單）── */
 .play-wrap{display:grid;grid-template-columns:240px minmax(0,1fr);gap:12px}
 @media(max-width:900px){.play-wrap{grid-template-columns:1fr}}
