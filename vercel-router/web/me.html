@@ -471,7 +471,8 @@ async function loadPlan(){
       ["每週上限", j.caps.wk ? `${fmtPts(j.caps.wk)} 點${j.ev ? ` ×${j.ev.mult} 活動中` : ""}` : "–"],
       ["本月 API 消耗", `${fmtPts(j.monthSpend)} 點（＝US$${fmtPts(j.monthSpend)}）`],
       ["本週已用", `${fmtPts(j.usedWk)} / ${j.caps.wk ? fmtPts(j.caps.wk) : "∞"} 點`],
-      ["月補 · 月費", `${fmtPts(j.caps.monthlyQuota)} 點/月 · ${fmtPts(j.fee)} 點/30天`],
+      ["月補（每月自動入帳）", j.caps.monthlyQuota > 0 ? `每月 +${fmtPts(j.caps.monthlyQuota)} 點「加」進你餘額＝白拿（Free/到期後照樣能花）` : "無（Free 無月補）"],
+      ["月費（30天訂閱費）", j.fee > 0 ? `每30天扣 ${fmtPts(j.fee)} 點；到期自動扣續約，可隨時取消` : "免費（Free 無月費）"],
       ["計費模式", j.active ? "吃到飽：訂閱期間 API 完全不動點數（5h/週額滿 → 429 等滾動）" : "純付費：照官方價扣點、無窗口"],
     ].map(([k,v])=>`<div>${esc(k)}</div><div>${esc(v)}</div>`).join("");
     const p5 = j.caps.h5 > 0 ? Math.min(100, j.used5 / j.caps.h5 * 100) : 0;
