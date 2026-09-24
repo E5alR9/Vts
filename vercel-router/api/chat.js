@@ -35,7 +35,7 @@ const DEFAULT_LADDER = [
 const COOLDOWN_MS = { 401: 600_000, 403: 600_000, 429: 60_000, 400: 0, 500: 30_000, 502: 30_000, 503: 30_000 };
 
 // 模組層狀態：同一個 warm instance 之間保留（cold start 會清空，無妨）
-const STATE = { cursor: 0, cooldownUntil: new Map() };
+const STATE = { cursor: 0, cooldownUntil: new Map(), itpm: new Map() };   // itpm: key→該key背後org已知的輸入上限
 
 function loadLadder() {
   const raw = (process.env.MODEL_LADDER || "").trim();
@@ -93,14 +93,23 @@ function estPromptPts(b) {
   return Math.max(1, Math.ceil(cjk / 1.05) + Math.ceil((s.length - cjk) / 3));
 }
 
-/** ITPM 瘦身：丟最舊訊息直到輸入估算 ≤ maxTok（保底留最後2則）；裁不動回 null
+/** ITPM 瘦身：丟最舊訊息直到輸入估算 ≤ maxTok；只剩2則還超 → 砍最舊那則的前段（不再放棄）
  *  觸發條件＝Groq 免費層 org 級 ITPM 上限（如 qwen7000/分），單發輸入超標必400 */
 function trimToLimit(b, maxTok) {
   const msgs = Array.isArray(b.messages) ? b.messages : null;
-  if (!msgs || msgs.length <= 2) return null;
-  let m = msgs.slice(), dropped = 0;
-  while (m.length > 2 && estPromptPts({ messages: m }) > maxTok) { m.shift(); dropped++; }
-  if (!dropped || estPromptPts({ messages: m }) > maxTok) return null;
+  if (!msgs || msgs.length < 1) return null;
+  let m = msgs.map((x) => ({ ...x }));
+  let dropped = 0;
+  while (m.length >= 1 && estPromptPts({ messages: m }) > maxTok && dropped < 50) {
+    if (m.length > 2) { m.shift(); dropped++; continue; }
+    const over = estPromptPts({ messages: m }) - maxTok;
+    const cut = Math.min(m[0].content.length - 1, Math.ceil(over * 1.05) + 64);
+    if (m.length === 1 && cut < 16) break;              // 單則且砍無剩 → 放棄
+    if (cut < 16) { m.shift(); dropped++; continue; }
+    m[0] = { role: m[0].role, content: m[0].content.slice(cut) };
+    dropped++;
+  }
+  if (!m.length || estPromptPts({ messages: m }) > maxTok) return null;
   return { body: { ...b, messages: m }, dropped };
 }
 function withMax(b, model) {
@@ -305,6 +314,14 @@ module.exports = async (req, res) => {
       }
     } catch { /* 渠道讀取失敗就用全池 */ }
 
+    // 大輸入（近/超 ITPM）→ 優先挑「沒被 org ITPM 拒過、或上限吃得下」的 key：
+    // 將來掛一把 Dev Tier 的 key 就會自然被選中跑長上下文（免費 key 全被牆擋也照跑）
+    const inputEst = estPromptPts(body);
+    if (inputEst > 6500) {
+      const elig = roundKeys.filter((k) => { const cap = STATE.itpm.get("k:" + k); return cap === undefined || cap >= inputEst; });
+      if (elig.length) roundKeys = elig;
+    }
+
     for (let tries = 0; tries < roundKeys.length && !modelDead; tries++) {
       const idx = nextKeyIdx(roundKeys);
       if (idx < 0) break;
@@ -480,14 +497,17 @@ module.exports = async (req, res) => {
       // Groq 免費層 ITPM（單發輸入/分鐘，org層）超標 → 自動裁最舊、同輪立刻瘦身重打
       // 分key沒用：限制掛在 org 上；session 不動，只瘦身這次請求
       const mLimit = (status === 400 || status === 429) ? String(msg).match(/Limit\s+(\d+)/) : null;
-      if (mLimit && /input tokens per minute|ITPM/i.test(msg) && !modelTrimmed) {
-        const tr = trimToLimit(body, (Number(mLimit[1]) || 7000) - 500);
-        if (tr) {
-          modelTrimmed = true;
-          body = tr.body;
-          tries--;                                       // 同一發預算內立刻重打
-          try { res.setHeader("x-context-trimmed", String(tr.dropped)); } catch {}
-          continue;
+      if (mLimit && /input tokens per minute|ITPM/i.test(msg)) {
+        STATE.itpm.set("k:" + gkey, Number(mLimit[1]) || 7000);   // 記住這把 key 背後 org 的上限（供大請求挑 key）
+        if (!modelTrimmed) {
+          const tr = trimToLimit(body, (Number(mLimit[1]) || 7000) - 500);
+          if (tr) {
+            modelTrimmed = true;
+            body = tr.body;
+            tries--;                                       // 同一發預算內立刻重打
+            try { res.setHeader("x-context-trimmed", String(tr.dropped)); } catch {}
+            continue;
+          }
         }
       }
       try { await store.recordKeyStat(gkey, { err: true }); } catch {}
