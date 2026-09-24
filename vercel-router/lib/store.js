@@ -642,7 +642,19 @@ async function getChats(userToken) {
 async function setChats(userToken, all) {
   const k = kv();
   if (!k) throw new Error("NO_KV");
-  await k.set("gr:chats:" + userToken, JSON.stringify(all.slice(0, 30)), { ex: 365 * 86400 });
+  // 全域預算 ~900KB（gr:chats 單值）：新的完整保留 → 舊的先壓成4則×2000字 → 再塞不下就捨棄更舊的
+  const list = (all || []).slice(0, 30);
+  const squash = (c) => ({ ...c, messages: (c.messages || []).slice(-4)
+    .map((m) => ({ role: m.role, content: String(m.content).slice(0, 2000) })) });
+  let out = [];
+  for (let i = 0; i < list.length; i++) {
+    let cand = [...out, list[i]];
+    if (JSON.stringify(cand).length <= 900000) { out = cand; continue; }
+    cand = [...out, squash(list[i])];
+    if (JSON.stringify(cand).length <= 900000) { out = cand; continue; }
+    break;
+  }
+  await k.set("gr:chats:" + userToken, JSON.stringify(out), { ex: 365 * 86400 });
 }
 
 /** Playground 對話 Session（一直保留；自動標題=首句；清單30則×每則80則×單則2萬字）── */

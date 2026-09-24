@@ -317,11 +317,22 @@ module.exports = async (req, res) => {
         return sendJson(res, 200, { ok: true, chat: c });
       }
       if (action === "chats.save") {
-        const msgs = (Array.isArray(body.messages) ? body.messages : [])
+        let msgs = (Array.isArray(body.messages) ? body.messages : [])
           .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
           .map((m) => ({ role: m.role, content: String(m.content).slice(0, 20000) }))
           .slice(-200);
         if (!msgs.length) return sendJson(res, 400, { ok: false, error: { message: "沒有訊息" } });
+        // 單則 session 預算 ~600KB：舊訊息先砍內文到2000字，再不行丟最舊
+        //（防 KV 單值上限讓整包存檔失敗 → 用戶看到「輸入輸出沒有在session」）
+        {
+          let pay = JSON.stringify(msgs);
+          if (pay.length > 600000) {
+            msgs = msgs.map((m, i) => (i < msgs.length - 8 ? { role: m.role, content: m.content.slice(0, 2000) } : m));
+            pay = JSON.stringify(msgs);
+          }
+          let g = 0;
+          while (pay.length > 600000 && msgs.length > 4 && g++ < 60) { msgs = msgs.slice(1); pay = JSON.stringify(msgs); }
+        }
         const now = new Date().toISOString();
         let id = String(body.id || "").trim();
         let c = id ? all.find((x) => x.id === id) : null;

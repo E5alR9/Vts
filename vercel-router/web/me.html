@@ -992,7 +992,7 @@ async function saveChat(){
       model: $("playModel") ? $("playModel").value : "", messages: PLAY_HIST.slice(-200) });
     if(j.ok && j.id) CUR_CHAT = j.id;
     loadChats();   // 刷新清單（標題/時間/排序）
-  }catch{ /* 存檔失敗不擋聊天 */ }
+  }catch(e){ toast("⚠ 自動存檔失敗：" + ((e && e.message) || e), true); }   // 不再靜默吞掉
 }
 function md(t){
   try{ return window.marked ? window.marked.parse(t, { breaks:true }) : esc(t); }
@@ -1075,7 +1075,9 @@ async function playRun(){
   const box = $("playOut");
   if(!box.dataset.started){ box.innerHTML = ""; box.dataset.started = "1"; }
   const ub = addMsg("user", esc(text));
-  PLAY_HIST.push({ role:"user", content:text });  // 多輪上下文（整個 session）
+  const lastP = PLAY_HIST[PLAY_HIST.length - 1];
+  if (!(lastP && lastP.role === "user" && lastP.content === text))   // 失敗後同句重試 → 不重複入史
+    PLAY_HIST.push({ role:"user", content:text });                   // 多輪上下文（整個 session）
   ub.dataset.raw = text;
   ub.dataset.idx = String(PLAY_HIST.length - 1);
   const bub = addMsg("ai", '<span class="cursor">▍</span>');
@@ -1147,17 +1149,21 @@ async function playRun(){
     const tail = parts.length ? `<div class="costline">${parts.join(" · ")}</div>` : "";
     bub.innerHTML = (why ? `<div class="reason">🤔 ${esc(why)}</div>` : "") + md(ans) + tail;
     box.scrollTop = box.scrollHeight;
-    if(ans) PLAY_HIST.push({ role:"assistant", content:ans });   // 回應入上下文
-    saveChat();                                                   // 自動存成 session（左側清單）
+    if(ans){
+      PLAY_HIST.push({ role:"assistant", content:ans });   // 回應入上下文
+      bub.dataset.raw = ans;                              // 複製鈕抓原始 markdown
+      bub.dataset.idx = String(PLAY_HIST.length - 1);
+    }
+    saveChat();                                             // 自動存成 session（左側清單）
     if(IS_ADMIN) loadLogs();
   }catch(e){
-    // 失敗 → 把剛才那句 user 從上下文抽掉，重打才不會疊兩次
-    if(PLAY_HIST.length && PLAY_HIST[PLAY_HIST.length-1].content === text) PLAY_HIST.pop();
+    // 失敗不再抽掉輸入：保留這句並存進 session（重載/切頁都還在）；同句重試不會重複入史
     const rawMsg = (e && e.message) || String(e);
     const msg = (e && e.name === "AbortError")
       ? "逾時（120秒）：生成/連線卡住——多半是對話太長或上游太慢，試試 🧹 新對話或換模型"
       : (/reduce the length|context|too long/i.test(rawMsg) ? `上下文太滿：${rawMsg} — 按🧹開新對話，或✏️編輯/刪除幾則舊訊息` : rawMsg);
     bub.innerHTML = (ans ? md(ans) + "<br>" : "") + `<span style="color:var(--bad)">失敗：${esc(msg)}</span>`;
+    saveChat();   // 把「輸入」也留下——不再讓它消失
   }
   if(btn) btn.disabled = false;
 }
