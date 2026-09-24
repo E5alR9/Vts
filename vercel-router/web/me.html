@@ -324,7 +324,7 @@
           <div class="msg ai"><div class="bubble muted">選模型 → 打一句話 → 送出：回應<b>逐字串流</b>，帶<b>整個 session</b> 當上下文，結束附扣點明細。<b>每發自動存檔</b>——左側清單隨時切回去續聊。</div></div>
         </div>
         <div style="display:flex;gap:8px">
-          <select id="playModel" style="flex:none;max-width:230px">
+          <select id="playModel" style="flex:none;max-width:330px">
             <option value="qwen/qwen3.8-27b">qwen3.8-27b（$0.8 / $4.0）</option>
             <option value="openai/gpt-oss-20b">gpt-oss-20b（$0.075 / $0.3）</option>
             <option value="openai/gpt-oss-120b">gpt-oss-120b（$0.15 / $0.6）</option>
@@ -1520,18 +1520,29 @@ async function loadPrices(){
   }catch(e){ $("pricePubRows").innerHTML = `<tr><td colspan="4" class="muted">載入失敗：${esc(e.message)}</td></tr>`; }
 }
 
-/* ── Playground：模型清單從 /v1/models 動態載入（全模型中轉）── */
+/* ── Playground：模型清單從 /v1/models 動態載入（全模型中轉）＋標官方價格 ── */
 async function loadPlayModels(){
   try{
-    const r = await fetch("/v1/models", { headers:{Authorization:"Bearer "+token()} });
+    const [r, pj] = await Promise.all([
+      fetch("/v1/models", { headers:{Authorization:"Bearer "+token()} }),
+      fetch("/api/auth?action=pricing", { headers:{Authorization:"Bearer "+token()} }).then((x)=>x.json()).catch(()=>({})),
+    ]);
     const j = await r.json();
+    const prices = pj.prices || {};
     const ids = (j.data||[]).map(m=>m.id).filter(id=>!/whisper|tts|audio|playai|orpheus/i.test(id));
     if(!ids.length) return;
-    const keep = $("playModel").value;
-    $("playModel").innerHTML = ids.map(id=>`<option value="${esc(id)}">${esc(id)}</option>`).join("");
-    if(ids.includes(keep)) $("playModel").value = keep;
-    if(!ids.includes($("playModel").value) && ids.includes("qwen/qwen3.8-27b")) $("playModel").value = "qwen/qwen3.8-27b";
-  }catch{ /* 拿不到就保留內建4個 */ }
+    const label = (id) => {
+      const o = prices[id];
+      const price = !o ? "" : o.unit ? o.unit
+        : (Number(o.input) === 0 && Number(o.output) === 0 ? "免費" : `$${o.input} / $${o.output}`);
+      return price ? `${id}（${price}）` : id;
+    };
+    const sel = $("playModel");
+    const keep = sel.value;
+    sel.innerHTML = ids.map(id=>`<option value="${esc(id)}">${esc(label(id))}</option>`).join("");
+    if(ids.includes(keep)) sel.value = keep;
+    else if(ids.includes("qwen/qwen3.8-27b")) sel.value = "qwen/qwen3.8-27b";
+  }catch{ /* 拿不到就保留內建4個(自帶價格) */ }
 }
 
 /* ── 啟動：同一頁，角色決定分頁 ── */
