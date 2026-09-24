@@ -215,6 +215,7 @@
       <div class="rule"><b>⑥ 活動倍率</b>：🎉 活動期間，「簽到 / 推薦 / 方案5h與週上限」<b>全部 ×N</b>（管理頁一開關即生效，到期日自動失效）。</div>
       <div class="rule"><b>⑦ 划算公式</b>：月含額≈月費×2（Plus：10/週 → 月約43 免費額 vs 直接付20只有20用量）＋簽到差額——訂閱嚴格划算，打滿2倍回本、重度會撞窗。</div>
       <div class="rule"><b>⑧ 降級自由</b>：隨時按 Free 降回（不退費），帳上點數照樣能花；方案表數字全部可在管理端 🎉活動/方案 即改即生效。</div>
+      <div class="rule"><b>⑨ 免費層輸入上限（ITPM）</b>：Groq on_demand <b>單發輸入 ≈7,000 tokens/模型</b>（org層，分key無效），超標必400——中轉會<b>自動裁掉最舊訊息瘦身重打</b>（session 完整保留，回應標 ✂️ 裁了幾則）；要打滿模型131k長上下文 → 升級 Groq Dev Tier（錯誤訊息附官方連結）或 🧹 開新對話。</div>
     </div>
   </section>
 
@@ -1150,6 +1151,8 @@ async function playRun(){
     const stH = r.headers.get("server-timing");
     const stM = stH && stH.match(/dur=(\d+)/);
     if (stM) parts.push(`⏱ 前置 ${stM[1]}ms（冷啟動/目錄/連上游；上游首字另需 prefill 時間）`);
+    const ctN = r.headers.get("x-context-trimmed");
+    if (ctN) parts.push(`✂️ 輸入超過免費層 ITPM 上限 → 已自動裁掉最舊 ${ctN} 則舊訊息（session 完整保留，僅這次請求瘦身）`);
     const tail = parts.length ? `<div class="costline">${parts.join(" · ")}</div>` : "";
     bub.innerHTML = (why ? `<div class="reason">🤔 ${esc(why)}</div>` : "") + md(ans) + tail;
     box.scrollTop = box.scrollHeight;

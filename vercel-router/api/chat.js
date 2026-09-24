@@ -92,6 +92,17 @@ function estPromptPts(b) {
   }
   return Math.max(1, Math.ceil(cjk / 1.05) + Math.ceil((s.length - cjk) / 3));
 }
+
+/** ITPM 瘦身：丟最舊訊息直到輸入估算 ≤ maxTok（保底留最後2則）；裁不動回 null
+ *  觸發條件＝Groq 免費層 org 級 ITPM 上限（如 qwen7000/分），單發輸入超標必400 */
+function trimToLimit(b, maxTok) {
+  const msgs = Array.isArray(b.messages) ? b.messages : null;
+  if (!msgs || msgs.length <= 2) return null;
+  let m = msgs.slice(), dropped = 0;
+  while (m.length > 2 && estPromptPts({ messages: m }) > maxTok) { m.shift(); dropped++; }
+  if (!dropped || estPromptPts({ messages: m }) > maxTok) return null;
+  return { body: { ...b, messages: m }, dropped };
+}
 function withMax(b, model) {
   if (b.max_tokens !== undefined) return { ...b, model };
   const raw = LIMITS && LIMITS[model];
@@ -277,6 +288,7 @@ module.exports = async (req, res) => {
 
   for (const model of ladder) {
     let modelDead = false;
+    let modelTrimmed = false;   // 每模型最多自動瘦身一次（防死循環）
 
     // 渠道路由：有啟用且支援此模型的渠道 → 按權重選一個，用它的 keys；
     // 沒有渠道（或 KV 未開）→ 用全池（env + 管理的 keys）
@@ -465,6 +477,19 @@ module.exports = async (req, res) => {
       }
       const msg = (payload && payload.error && payload.error.message) || "";
       coolKey(gkey, status);
+      // Groq 免費層 ITPM（單發輸入/分鐘，org層）超標 → 自動裁最舊、同輪立刻瘦身重打
+      // 分key沒用：限制掛在 org 上；session 不動，只瘦身這次請求
+      const mLimit = (status === 400 || status === 429) ? String(msg).match(/Limit\s+(\d+)/) : null;
+      if (mLimit && /input tokens per minute|ITPM/i.test(msg) && !modelTrimmed) {
+        const tr = trimToLimit(body, (Number(mLimit[1]) || 7000) - 500);
+        if (tr) {
+          modelTrimmed = true;
+          body = tr.body;
+          tries--;                                       // 同一發預算內立刻重打
+          try { res.setHeader("x-context-trimmed", String(tr.dropped)); } catch {}
+          continue;
+        }
+      }
       try { await store.recordKeyStat(gkey, { err: true }); } catch {}
       lastError = { status: status === 404 ? 502 : status, payload: payload || { error: { message: `HTTP ${status}` } } };
       if (model === ladder[0] && !reqError) reqError = lastError;   // 記住指定模型的真錯誤
