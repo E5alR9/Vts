@@ -496,7 +496,7 @@ module.exports = async (req, res) => {
       coolKey(gkey, status);
       // Groq 免費層 ITPM（單發輸入/分鐘，org層）超標 → 自動裁最舊、同輪立刻瘦身重打
       // 分key沒用：限制掛在 org 上；session 不動，只瘦身這次請求
-      const mLimit = (status === 400 || status === 429) ? String(msg).match(/Limit\s+(\d+)/) : null;
+      const mLimit = (status === 400 || status === 413 || status === 429) ? String(msg).match(/Limit\s+(\d+)/) : null;   // Groq用413(Payload Too Large)回ITPM超標
       if (mLimit && /input tokens per minute|ITPM/i.test(msg)) {
         STATE.itpm.set("k:" + gkey, Number(mLimit[1]) || 7000);   // 記住這把 key 背後 org 的上限（供大請求挑 key）
         if (!modelTrimmed) {
