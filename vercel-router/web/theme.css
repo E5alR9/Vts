@@ -218,7 +218,17 @@ main{margin-left:218px;max-width:calc(1360px + 218px);padding-top:22px}
 .rule{border-left:3px solid rgba(34,211,238,.5);background:rgba(6,10,20,.45);
   padding:8px 12px;border-radius:0 9px 9px 0;font-size:12.5px;line-height:1.75}
 .rule b{color:#a5e8f5}
-/* ── Playground 聊天式（串流氣泡 + session 清單）── */
+/* ── Playground 聊天式（串流氣泡 + session 清單 + 訊息動作列）── */
+.msg{display:flex;flex-direction:column}
+.msg.user{align-items:flex-end}
+.msg.ai{align-items:stretch}
+.msg-acts{display:flex;gap:6px;margin-top:5px;opacity:0;transition:opacity .15s}
+.msg:hover .msg-acts{opacity:1}
+@media(hover:none){.msg-acts{opacity:1}}
+.msg.user .msg-acts{justify-content:flex-end}
+.msg-acts button{font-size:11.5px;padding:2px 9px;border-radius:7px;background:rgba(30,42,66,.55);
+  border:1px solid var(--line2);color:var(--dim);cursor:pointer;font-family:inherit;transition:.12s}
+.msg-acts button:hover{color:var(--txt);border-color:var(--acc);background:rgba(56,189,248,.12)}
 .play-wrap{display:grid;grid-template-columns:240px minmax(0,1fr);gap:12px}
 @media(max-width:900px){.play-wrap{grid-template-columns:1fr}}
 .play-sessions{background:rgba(6,10,20,.55);border:1px solid var(--line);border-radius:14px;

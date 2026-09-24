@@ -390,11 +390,15 @@ let ME = null, IS_ADMIN = false, CHART_ROWS = [], SPEED_PTS = [], AKS = [], USE_
 function token(){
   return localStorage.getItem("gr_session") || localStorage.getItem("gr_admin_token") || "";
 }
-async function post(body){
-  const r = await fetch("/api/auth",{method:"POST",
-    headers:{"Content-Type":"application/json",Authorization:"Bearer "+token()},
-    body:JSON.stringify(body)});
-  return r.json();
+async function post(body, timeoutMs){
+  const ctl = new AbortController();
+  const tmo = setTimeout(() => ctl.abort(), timeoutMs || 15000);   //15s逾時：再慢也不讓按鈕/流程永久卡死
+  try{
+    const r = await fetch("/api/auth",{method:"POST",
+      headers:{"Content-Type":"application/json",Authorization:"Bearer "+token()},
+      body:JSON.stringify(body), signal: ctl.signal});
+    return await r.json();
+  } finally { clearTimeout(tmo); }
 }
 function logout(){
   post({action:"logout"}).catch(()=>{});
@@ -730,6 +734,7 @@ function route(){
     a.classList.toggle("active", a.dataset.nav === target));
   const t = $("pageTitle"); if (t) t.textContent = PAGE_TITLE[target] || "";
   if (target === "usage" && CHART_ROWS.length) drawUsageChart(CHART_ROWS);   // 切回用量頁時用真實寬度重畫折線圖
+  if (target === "usage" && SPEED_PTS.length) drawSpeedChart(SPEED_PTS);     // 速度圖同理（boot時頁面隱藏會畫成700px窄版）
   document.body.classList.remove("nav-open");
 }
 window.addEventListener("hashchange", route);
@@ -924,9 +929,11 @@ function renderHistory(msgs){
   const box = $("playOut");
   box.innerHTML = "";
   box.dataset.started = "1";
-  for(const m of (msgs || [])){
-    addMsg(m.role === "user" ? "user" : "ai", md(m.content || ""));
-  }
+  (msgs || []).forEach((m, i) => {
+    const el = addMsg(m.role === "user" ? "user" : "ai", md(m.content || ""));
+    el.dataset.raw = m.content || "";
+    el.dataset.idx = String(i);
+  });
   box.scrollTop = box.scrollHeight;
 }
 async function loadChats(){
@@ -998,10 +1005,46 @@ function addMsg(who, html){
   b.className = "bubble";
   if(html) b.innerHTML = html;
   d.appendChild(b);
+  // 訊息動作列（Codex式）：📋複製；使用者訊息再給 ✏️編輯
+  const bar = document.createElement("div");
+  bar.className = "msg-acts";
+  bar.innerHTML = `<button data-act="copy">📋 複製</button>` + (who === "user" ? `<button data-act="edit">✏️ 編輯</button>` : "");
+  d.appendChild(bar);
   $("playOut").appendChild(d);
   $("playOut").scrollTop = $("playOut").scrollHeight;
   return b;
 }
+
+/* ── 訊息動作：複製 / 編輯（載回輸入框、此點後截斷重來）── */
+function editMsg(idx){
+  const m = PLAY_HIST[idx];
+  if(!m || m.role !== "user") return;
+  if(idx < PLAY_HIST.length - 1 && !confirm("編輯這句並從這裡重來？此點之後的對話會截掉（下次發送時同步進 session）")) return;
+  PLAY_HIST = PLAY_HIST.slice(0, idx);
+  renderHistory(PLAY_HIST);
+  $("playText").value = m.content;
+  const l = $("playText").value.length;
+  $("playText").focus();
+  try{ $("playText").setSelectionRange(l, l); }catch{}
+  toast("已載入輸入框，改完 Enter 重新發送");
+}
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest && e.target.closest(".msg-acts button");
+  if(!btn) return;
+  const box = $("playOut");
+  if(!box || !box.contains(btn)) return;
+  const msg = btn.closest(".msg");
+  const b = msg && msg.querySelector(".bubble");
+  if(!b) return;
+  const raw = (b.dataset.raw !== undefined && b.dataset.raw !== "") ? b.dataset.raw : b.innerText;
+  if(btn.dataset.act === "copy"){
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(raw).then(()=>toast("已複製 ✅")).catch(()=>toast("複製失敗，請手動選取", true));
+    } else { toast("此瀏覽器不支援剪貼簿，請手動選取", true); }
+    return;
+  }
+  if(btn.dataset.act === "edit") editMsg(Number(b.dataset.idx));
+});
 /* ── 輸入歷史：↑帶上次輸入（連按回溯）、↓往新/清空 ── */
 let INPUT_HIST = [], INPUT_IDX = -1;
 function playKey(e){
@@ -1031,8 +1074,10 @@ async function playRun(){
   $("playText").value = "";                       // 送出即清空輸入框
   const box = $("playOut");
   if(!box.dataset.started){ box.innerHTML = ""; box.dataset.started = "1"; }
-  addMsg("user", esc(text));
-  PLAY_HIST.push({ role:"user", content:text });  // 多輪上下文（上限20則）
+  const ub = addMsg("user", esc(text));
+  PLAY_HIST.push({ role:"user", content:text });  // 多輪上下文（整個 session）
+  ub.dataset.raw = text;
+  ub.dataset.idx = String(PLAY_HIST.length - 1);
   const bub = addMsg("ai", '<span class="cursor">▍</span>');
   const btn = $("playBtn");
   if(btn) btn.disabled = true;
@@ -1042,7 +1087,9 @@ async function playRun(){
     box.scrollTop = box.scrollHeight;
   };
   try{
-    const r = await fetch("/v1/chat/completions", { method:"POST",
+    const ctl = new AbortController();
+    setTimeout(() => ctl.abort(), 120000);   // 120s＝與 chat maxDuration 同：卡死必放鈕，不讓它永遠轉
+    const r = await fetch("/v1/chat/completions", { method:"POST", signal: ctl.signal,
       headers:{"Content-Type":"application/json", Authorization:"Bearer "+token()},
       body: JSON.stringify({ model:$("playModel").value, stream:true,
         messages: PLAY_HIST }) });   // 上下文＝整個 session（你指定，不做截斷）· 不設輸出上限
@@ -1106,7 +1153,11 @@ async function playRun(){
   }catch(e){
     // 失敗 → 把剛才那句 user 從上下文抽掉，重打才不會疊兩次
     if(PLAY_HIST.length && PLAY_HIST[PLAY_HIST.length-1].content === text) PLAY_HIST.pop();
-    bub.innerHTML = (ans ? md(ans) + "<br>" : "") + `<span style="color:var(--bad)">失敗：${esc(e.message)}</span>`;
+    const rawMsg = (e && e.message) || String(e);
+    const msg = (e && e.name === "AbortError")
+      ? "逾時（120秒）：生成/連線卡住——多半是對話太長或上游太慢，試試 🧹 新對話或換模型"
+      : (/reduce the length|context|too long/i.test(rawMsg) ? `上下文太滿：${rawMsg} — 按🧹開新對話，或✏️編輯/刪除幾則舊訊息` : rawMsg);
+    bub.innerHTML = (ans ? md(ans) + "<br>" : "") + `<span style="color:var(--bad)">失敗：${esc(msg)}</span>`;
   }
   if(btn) btn.disabled = false;
 }

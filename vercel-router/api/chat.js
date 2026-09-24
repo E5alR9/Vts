@@ -43,12 +43,12 @@ function loadLadder() {
   return list.length ? list : DEFAULT_LADDER;
 }
 
-/** 未指定輸出上限 → 補上「模型真上限」給滿。優先序：
+/** 未指定輸出上限 → 補上「模型真上限 與 上下文剩餘視窗 的較小值」：
  *  1) 呼叫端有設 → 尊重
- *  2) Groq /v1/models 權威值 max_completion_tokens（ensureLimits 抓一次，含 allam 等未登錄模型）
- *  3) MODEL_SPECS 靜態表兜底（上游抓不到時）
- *  都沒有 → 省略（Groq 省略時自己砍2048，所以前三關盡量別漏） */
-let LIMITS = null;   // {modelId: maxCompletionTokens} — warm instance 抓一次
+ *  2) Groq /v1/models 權威值 max_completion_tokens + context_window（ensureLimits 抓一次）
+ *  3) MODEL_SPECS 靜態表兜底
+ *  ⚠ 還會夾在剩餘視窗內：否則 prompt+max_tokens>ctx 被上游400 "reduce the length" */
+let LIMITS = null;   // {modelId: {max, ctx}} — warm instance 抓一次
 async function ensureLimits() {
   if (LIMITS) return;
   try {
@@ -58,16 +58,36 @@ async function ensureLimits() {
     const j = await r.json();
     const map = {};
     for (const m of (j.data || [])) {
-      const lim = m.max_completion_tokens || m.max_output_length;
-      if (lim) map[m.id] = lim;
+      const mx = m.max_completion_tokens || m.max_output_length;
+      const cx = m.context_window || m.context_length;
+      if (mx || cx) map[m.id] = { max: mx || 0, ctx: cx || 0 };
     }
     if (Object.keys(map).length) LIMITS = map;
   } catch { /* 抓失敗 → 走 MODEL_SPECS 兜底，下次請求再試 */ }
 }
+
+/** 輸入 token 粗估（中英混合同步：中文字≈1token/1.05、其他/3）——用於上下文夾限與提早預檢 */
+function estPromptPts(b) {
+  const s = JSON.stringify(b.messages || b.input || "");
+  let cjk = 0;
+  for (const ch of s) {
+    const c = ch.codePointAt(0);
+    if ((c >= 0x2E80 && c <= 0x9FFF) || (c >= 0x3400 && c <= 0x4DBF) ||
+        (c >= 0xF900 && c <= 0xFAFF) || (c >= 0xFF00 && c <= 0xFFEF)) cjk++;
+  }
+  return Math.max(1, Math.ceil(cjk / 1.05) + Math.ceil((s.length - cjk) / 3));
+}
 function withMax(b, model) {
   if (b.max_tokens !== undefined) return { ...b, model };
-  const lim = (LIMITS && LIMITS[model]) || (store.MODEL_SPECS[model] || {}).maxOut;
-  return lim ? { ...b, model, max_tokens: lim } : { ...b, model };
+  const raw = LIMITS && LIMITS[model];
+  const lim = typeof raw === "number" ? { max: raw, ctx: 0 } : raw;   // 相容舊warm快取的純數字格式
+  const sp = store.MODEL_SPECS[model];
+  const cap = (lim && lim.max) || (sp && sp.maxOut) || 0;
+  const ctx = (lim && lim.ctx) || (sp && sp.ctx) || 0;
+  if (!cap) return { ...b, model };
+  const pt = estPromptPts(b);                                  // 輸入粗估（中英混合）
+  const room = (ctx || 131072) - pt - 4096;                    // 上下文剩餘視窗（留緩衝）
+  return { ...b, model, max_tokens: Math.max(64, Math.min(cap, room)) };   // 模型上限 與 剩餘視窗 取小
 }
 
 function isCooling(i) {
@@ -224,8 +244,20 @@ module.exports = async (req, res) => {
   const wantStream = body.stream === true;
 
   let lastError = { status: 502, payload: { error: { message: "all keys/models exhausted" } } };
+  let reqError = null;   // 優先回報「呼叫端指定模型」的真錯誤（別被梯隊最後的allam遮掉）
 
   await ensureLimits();   // 上游模型上限表（每 warm instance 抓一次，失敗走靜態兜底）
+
+  // 上下文快滿 → 友善提早擋（比上游400 "reduce the length" 好讀）
+  if (body.messages || body.input) {
+    const ptE = estPromptPts(body);
+    const rr = LIMITS && LIMITS[ladder[0]];
+    const rctx = (rr && (typeof rr === "object" ? rr.ctx : 0)) || (store.MODEL_SPECS[ladder[0]] || {}).ctx || 131042;
+    if (ptE > rctx - 20000) {
+      return sendJson(res, 400, { error: { message:
+        `上下文快滿了（輸入≈${ptE} / ${rctx} tokens）：剩餘空間不足——按🧹開新對話，或 ✏️編輯/刪除幾則舊訊息再送`, code: "context_full" } });
+    }
+  }
 
   for (const model of ladder) {
     let modelDead = false;
@@ -417,6 +449,7 @@ module.exports = async (req, res) => {
       coolKey(gkey, status);
       try { await store.recordKeyStat(gkey, { err: true }); } catch {}
       lastError = { status: status === 404 ? 502 : status, payload: payload || { error: { message: `HTTP ${status}` } } };
+      if (model === ladder[0] && !reqError) reqError = lastError;   // 記住指定模型的真錯誤
 
       // 模型不存在 / 模型名錯誤 → 換下一階模型（跟金鑰無關，繼續敲同一把也沒用）
       if (status === 404 || /model.*not.*found|does not exist|decommissioned/i.test(msg)) {
@@ -429,5 +462,8 @@ module.exports = async (req, res) => {
     // 不是 modelDead（例如全部金鑰都被 429 擋住）→ 等下一次請求再試同一階
   }
 
-  return sendJson(res, lastError.status, lastError.payload);
+  return (function () {
+    const fin = reqError || lastError;
+    return sendJson(res, fin.status, fin.payload);
+  })();
 };
