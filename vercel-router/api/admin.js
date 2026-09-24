@@ -450,15 +450,18 @@ module.exports = async (req, res) => {
       const managed = (await store.getManagedKeys()) || [];
       for (const k of managed) labelBy[k.prefix || store.mask(k.key)] = k.label || "管理";
       const now = Date.now();
+      const itpmCaps = await store.getItpmCaps();
       const list = Object.entries(s.keys || {}).map(([hash, e]) => {
         const rpm = (e.ts || []).filter((t) => now - t < 60000).length;
         return { hash, prefix: e.prefix || hash, source: labelBy[e.prefix] || "渠道",
           reqs: e.reqs || 0, tokens: e.tokens || 0, errs: e.errs || 0,
+          itpm: itpmCaps[e.prefix] || null,
           rpm, pressure: Math.min(100, Math.round((rpm / limit) * 100)) };
       }).sort((x, y) => y.rpm - x.rpm || y.reqs - x.reqs);
       const pool = { env: envList.length,
         managed: managed.filter((k) => !k.disabled).length };
       pool.total = pool.env + pool.managed;
+      const knownOrgs = [...new Set(Object.values(itpmCaps).map((c) => c && c.org).filter(Boolean))];
       // 每模型容量推估：Groq 限流每個模型分開算 → 各模型預算 = 單把(rpm/tpm) × 把數
       const capacity = Object.entries(store.MODEL_SPECS).map(([model, sp]) => {
         const rpmKey = sp.rpm == null ? limit : sp.rpm;          // 未公布 → 用 KEY_RPM_LIMIT 推估
@@ -467,7 +470,8 @@ module.exports = async (req, res) => {
           rpmTotal: rpmKey * pool.total,
           tpmKnown: sp.tpm != null, tpmKey, tpmTotal: tpmKey * pool.total };
       }).sort((x, y) => y.rpmTotal - x.rpmTotal);
-      return sendJson(res, 200, { ok: true, day: s.day || "", limit, pool, capacity, keys: list });
+      return sendJson(res, 200, { ok: true, day: s.day || "", limit, pool, capacity, keys: list,
+        itpmCaps, orgCount: knownOrgs.length, orgs: knownOrgs });
     }
 
     // ── 計費表（模型倍率；扣點 = tokens × 倍率）──

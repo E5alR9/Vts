@@ -297,7 +297,7 @@ module.exports = async (req, res) => {
 
   for (const model of ladder) {
     let modelDead = false;
-    let modelTrimmed = false;   // 每模型最多自動瘦身一次（防死循環）
+    let itpmFails = 0;   // 每模型最多自我校準瘦身3次（防死循環）
 
     // 渠道路由：有啟用且支援此模型的渠道 → 按權重選一個，用它的 keys；
     // 沒有渠道（或 KV 未開）→ 用全池（env + 管理的 keys）
@@ -498,11 +498,20 @@ module.exports = async (req, res) => {
       // 分key沒用：限制掛在 org 上；session 不動，只瘦身這次請求
       const mLimit = (status === 400 || status === 413 || status === 429) ? String(msg).match(/Limit\s+(\d+)/) : null;   // Groq用413(Payload Too Large)回ITPM超標
       if (mLimit && /input tokens per minute|ITPM/i.test(msg)) {
-        STATE.itpm.set("k:" + gkey, Number(mLimit[1]) || 7000);   // 記住這把 key 背後 org 的上限（供大請求挑 key）
-        if (!modelTrimmed) {
-          const tr = trimToLimit(body, (Number(mLimit[1]) || 7000) - 500);
+        const lim = Number(mLimit[1]) || 7000;
+        STATE.itpm.set("k:" + gkey, lim);                       // 記住這把 key 背後 org 的上限（供大請求挑 key）
+        store.setItpmCap(store.mask(gkey), { limit: lim,
+          org: (String(msg).match(/org_[a-z0-9]+/) || [""])[0] }).catch(() => {});
+        if (itpmFails < 3) {
+          itpmFails++;
+          // 自我校準「盡可能大」：錯誤訊息帶真實輸入量 Requested R → 算出 r=真實/估算
+          // 目標=貼近上限（lim−300）的最大可過上下文 → 只砍到剛好能過為止
+          const mReq = String(msg).match(/Requested\s+(\d+)/);
+          const estSent = estPromptPts(body);
+          const r = (mReq && estSent > 0) ? (Number(mReq[1]) / estSent) : 0.7;
+          const targetEst = Math.floor((lim - 300) / Math.max(0.3, r));
+          const tr = trimToLimit(body, targetEst);
           if (tr) {
-            modelTrimmed = true;
             body = tr.body;
             tries--;                                       // 同一發預算內立刻重打
             try { res.setHeader("x-context-trimmed", String(tr.dropped)); } catch {}

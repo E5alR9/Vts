@@ -348,14 +348,15 @@
       <div class="stat"><div class="v" id="kpCap">–</div><div class="l" id="kpCapL">推估總容量 RPM</div></div>
       <div class="stat"><div class="v" id="kpNow">–</div><div class="l" id="kpNowL">目前實際 RPM</div></div>
       <div class="stat"><div class="v" id="kpTpm">–</div><div class="l" id="kpTpmL">推估總 TPM</div></div>
+      <div class="stat"><div class="v" id="kpOrgs">–</div><div class="l">已知 org 數（限流若按org共享：併發≈×1K RPM/模型）</div></div>
     </div>
     <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
       <button class="primary" onclick="loadKeyPress()">↻ 更新</button>
       <span class="muted" id="kpDay">–</span>
       <span class="muted" id="kpLimit"></span>
     </div>
-    <table><thead><tr><th>金鑰</th><th>來源</th><th>今日請求</th><th>今日 tokens</th><th>錯誤</th><th>壓力（近 1 分鐘）</th></tr></thead>
-    <tbody id="kpRows"><tr><td colspan="6" class="muted">載入中…</td></tr></tbody></table>
+    <table><thead><tr><th>金鑰</th><th>來源</th><th>今日請求</th><th>今日 tokens</th><th>錯誤</th><th>已知輸入上限/org</th><th>壓力（近 1 分鐘）</th></tr></thead>
+    <tbody id="kpRows"><tr><td colspan="7" class="muted">載入中…</td></tr></tbody></table>
     <div class="muted" style="margin-top:8px">壓力 ＝ 近 1 分鐘請求 ÷ <code>KEY_RPM_LIMIT</code>（env，預設 <b>1000</b> ＝ 官方開發層單把）。下方容量<strong>每個模型分開算</strong>（Groq 限流 per-model，各模型預算互不共用）；若 Groq 實際按 <b>org 級</b>限流（同 org 所有 key 共用一個模型的額度），真實總量以先撞 429 的為準。≥80% 亮紅 → 考慮停用該把或調降渠道權重。</div>
     <h2 style="margin-top:16px">📐 每模型容量推估 <small>單把官方限流 × 可用把數 · 各模型獨立、不疊加</small></h2>
     <table><thead><tr><th>模型</th><th>單把 RPM</th><th>× 把數</th><th>推估總 RPM</th><th>推估總 TPM</th></tr></thead>
@@ -1335,6 +1336,11 @@ async function loadKeyPress(){
     const tpm = pool.total * 250000;
     $("kpTpm").textContent = tpm >= 1e6 ? (tpm / 1e6).toLocaleString() + "M" : fmt(tpm);
     $("kpTpmL").textContent = `單模型推估 TPM（${pool.total} 把 × 250K/把）`;
+    const ko = $("kpOrgs");
+    if (ko) {
+      ko.textContent = (j.orgCount || 0) + " 個";
+      ko.title = (j.orgs || []).join("\n");
+    }
     // 每模型容量表
     $("capRows").innerHTML = (j.capacity || []).map(c => `<tr>
       <td class="code">${esc(c.model)}</td>
@@ -1352,6 +1358,7 @@ async function loadKeyPress(){
         <td>${k.reqs}</td>
         <td>${k.tokens}</td>
         <td>${k.errs ? `<span class="chip bad">${k.errs}</span>` : "0"}</td>
+        <td>${k.itpm ? `<span class="chip warn">${Number(k.itpm.limit).toLocaleString()}</span> <span class="muted code">${esc((k.itpm.org||"").slice(0,14))}…</span>` : '<span class="muted">未受限/未知</span>'}</td>
         <td><div style="display:flex;gap:8px;align-items:center;min-width:230px">
           <div class="bar" style="flex:1;min-width:110px;margin:0"><i style="width:${k.pressure}%"></i></div>
           <span class="chip ${cls}">${k.rpm}/分 · ${k.pressure}% · ${st}</span>

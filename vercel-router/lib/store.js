@@ -658,6 +658,25 @@ async function setChats(userToken, all) {
 }
 
 /** Playground 對話 Session（一直保留；自動標題=首句；清單30則×每則80則×單則2萬字）── */
-async function _chatsPlaceholder() {}
+/** 已知的 ITPM 上限（每把key被org拒時記下）：gr:itpmcap {prefix: {limit, org}}
+ *  用途：KEY壓力頁顯示 + 大輸入請求挑「沒被org擋過的key」 */
+async function getItpmCaps() {
+  const k = kv();
+  if (!k) return {};
+  try {
+    const raw = await k.get("gr:itpmcap");
+    const o = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {};
+    return o && typeof o === "object" ? o : {};
+  } catch { return {}; }
+}
+async function setItpmCap(prefix, info) {
+  const k = kv();
+  if (!k) return;
+  try {
+    const cur = await getItpmCaps();
+    cur[prefix] = info;
+    await k.set("gr:itpmcap", JSON.stringify(cur), { ex: 90 * 86400 });
+  } catch { /* 記失敗不擋路 */ }
+}
 
-module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, dayKey, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, MODEL_PRICES, MODEL_SPECS, POINTS_PER_USD, costFor, logRequest, getLogs, logUserReq, getUserReqs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel, getPlans, setPlans, DEFAULT_PLANS, activePlanOf, planCapsFor, maybeRenew, addHourlySpend, hourlySpend, streakDays, streakMult, getEvent, setEvent, activeEvent, keyStatHash, recordKeyStat, getKeyStat, recordSpeed, getSpeed, getChats, setChats };
+module.exports = { kv, hasKV, envKeys, mask, getManagedKeys, setManagedKeys, allKeys, getUsers, setUsers, isSeeded, markSeeded, recordUsage, getUsage, dayKey, getInvites, setInvites, newInviteCode, getPricing, setPricing, priceFor, DEFAULT_PRICING, MODEL_PRICES, MODEL_SPECS, POINTS_PER_USD, costFor, logRequest, getLogs, logUserReq, getUserReqs, ensureMonthlyQuota, getChannels, setChannels, newChannelId, pickChannel, getPlans, setPlans, DEFAULT_PLANS, activePlanOf, planCapsFor, maybeRenew, addHourlySpend, hourlySpend, streakDays, streakMult, getEvent, setEvent, activeEvent, keyStatHash, recordKeyStat, getKeyStat, recordSpeed, getSpeed, getChats, setChats, setItpmCap, getItpmCaps };
