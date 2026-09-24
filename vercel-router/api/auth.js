@@ -510,7 +510,7 @@ module.exports = async (req, res) => {
         if (u.redeemedCodes.includes(code)) {
           return sendJson(res, 400, { ok: false, error: { message: "這張推薦碼你兌過了（同一張不可重複，但可以收別張）" } });
         }
-        let gain = Math.max(1, Number(process.env.REFERRAL_CREDITS) || 1000);
+        let gain = Math.max(1, Number(process.env.REFERRAL_CREDITS) || 100);
         try { const ev = store.activeEvent(await store.getEvent()); if (ev) gain *= Number(ev.mult) || 1; } catch {}
         if (u.credits !== -1) u.credits = (Number(u.credits) || 0) + gain;
         if (refUser.credits !== -1) refUser.credits = (Number(refUser.credits) || 0) + gain;

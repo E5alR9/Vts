@@ -189,6 +189,23 @@ module.exports = async (req, res) => {
   const keys = keyObjs.map((k) => k.key);
   if (!keys.length) return sendJson(res, 500, { error: { message: "未設定 GROQ_KEYS" } });
 
+  // 方案優先權：RPM 吃緊（冷卻中金鑰佔比高）→ 低階方案先讓路，高階照打
+  // 階層：free0 < plus1 < pro2 < max3 < ultra4；壓力≥50%要plus↑、≥75%要pro↑、≥90%要max↑
+  if (caller.kind === "user" && PLAN_CAPS) {
+    const now2 = Date.now();
+    let cooling = 0;
+    for (const gk of keys) if ((STATE.cooldownUntil.get("k:" + gk) || 0) > now2) cooling++;
+    const pressure = keys.length ? cooling / keys.length : 0;
+    const tier = { free: 0, plus: 1, pro: 2, max: 3, ultra: 4 }[PLAN_CAPS.id] !== undefined
+      ? { free: 0, plus: 1, pro: 2, max: 3, ultra: 4 }[PLAN_CAPS.id] : 0;
+    const need = pressure >= 0.9 ? 3 : pressure >= 0.75 ? 2 : pressure >= 0.5 ? 1 : -1;
+    if (need >= 0 && tier < need) {
+      const needName = need >= 3 ? "Max / Ultra" : need === 2 ? "Pro 以上" : "Plus 以上";
+      return sendJson(res, 429, { error: { message:
+        `系統 RPM 吃緊（${Math.round(pressure * 100)}% 金鑰冷卻中），此壓力層優先服務${needName} — 升級方案取得優先權，或稍後再試`, code: "rpm_priority" } });
+    }
+  }
+
   let body = req.body;
   if (typeof body === "string") {
     try {

@@ -468,7 +468,8 @@ function planCapsFor(plans, planId, ev) {
   const p = plans[planId] || plans.free || {};
   const m = ev ? (Number(ev.mult) || 1) : 1;
   const d = Number(p.disc);
-  return { h5: (Number(p.h5) || 0) * m, wk: (Number(p.wk) || 0) * m,
+  return { id: plans[planId] ? planId : "free",
+    h5: (Number(p.h5) || 0) * m, wk: (Number(p.wk) || 0) * m,
     disc: (d > 0 && d <= 1) ? d : 1,
     fee: Number(p.fee) || 0, rewardMult: Number(p.rewardMult) || 1,
     monthlyQuota: Number(p.monthlyQuota) || 0, label: p.label || planId };
