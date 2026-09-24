@@ -54,7 +54,10 @@ async function ensureLimits() {
   try {
     const keys = (await store.allKeys()).map((k) => k.key);
     if (!keys.length) return;
-    const r = await fetch(MODELS_URL, { headers: { Authorization: `Bearer ${keys[0]}` } });
+    const ac = new AbortController();
+    const tm = setTimeout(() => ac.abort(), 8000);   // 8s保險：上游挂住時不讓整發請求悶到120秒才死
+    const r = await fetch(MODELS_URL, { headers: { Authorization: `Bearer ${keys[0]}` }, signal: ac.signal });
+    clearTimeout(tm);
     const j = await r.json();
     const map = {};
     for (const m of (j.data || [])) {
@@ -253,9 +256,9 @@ module.exports = async (req, res) => {
     const ptE = estPromptPts(body);
     const rr = LIMITS && LIMITS[ladder[0]];
     const rctx = (rr && (typeof rr === "object" ? rr.ctx : 0)) || (store.MODEL_SPECS[ladder[0]] || {}).ctx || 131042;
-    if (ptE > rctx - 20000) {
+    if (ptE > rctx - 1024) {   // 只擋「真的滿到連1k都塞不下」——上下文用到模型支援的最大值
       return sendJson(res, 400, { error: { message:
-        `上下文快滿了（輸入≈${ptE} / ${rctx} tokens）：剩餘空間不足——按🧹開新對話，或 ✏️編輯/刪除幾則舊訊息再送`, code: "context_full" } });
+        `上下文已達模型上限（輸入≈${ptE} / ${rctx} tokens）：按🧹開新對話，或 ✏️編輯/刪除幾則舊訊息再送`, code: "context_full" } });
     }
   }
 
