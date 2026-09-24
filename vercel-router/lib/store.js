@@ -333,21 +333,24 @@ function streakDays(logArr) {
 /** 連簽加成：7天×1.5 · 14天×2 · 30天×3（與活動/方案倍率相乘） */
 function streakMult(n) { return n >= 30 ? 3 : n >= 14 ? 2 : n >= 7 ? 1.5 : 1; }
 
-/** 到期處理（訂閱制核心）：
+/** 到期處理（規則：錢不夠就不續約，乾淨結案）：
  *  · 未到期 → null（不用動）
- *  · 到期 + 未取消 + 餘額足 → **自動續約**：扣月費、期限=當下+30天（中斷期不補），回 "renewed"（呼叫端要寫回）
- *  · 到期 + 未取消 + 餘額不足 → "short"（不寫；之後充值碰到任一入口會自動補續）
- *  · 到期 + 已取消 → null（不續，activePlanOf 自然降 Free；權益已在到期前有效）
+ *  · 到期 + 未取消 + 餘額足 → **自動續約**：扣月費、期限=當下+30天，回 "renewed"（呼叫端寫回）
+ *  · 到期 + 已取消 → 結案：清 plan 欄位回 Free，回 "dropped"
+ *  · 到期 + 錢不夠 → **不續約**：清 plan 欄位回 Free（餘額不動、之後補款也不會回頭補續），回 "dropped"
  */
 function maybeRenew(u, plans) {
   if (!u || !u.plan || u.plan === "free" || !u.subUntil) return null;
   const exp = Date.parse(u.subUntil);
   if (!Number.isFinite(exp) || Date.now() <= exp) return null;
-  if (u.subCancel) return null;
   const p = plans[u.plan];
-  if (!p) return null;
-  const fee = Number(p.fee) || 0;
-  if (u.credits !== -1 && (Number(u.credits) || 0) < fee) return "short";
+  const fee = p ? (Number(p.fee) || 0) : 0;
+  const canPay = !u.subCancel && p && (u.credits === -1 || (Number(u.credits) || 0) >= fee);
+  if (!canPay) {                                   // 取消 / 錢不夠 → 結案降Free，不留殘帳
+    u.plan = "free";
+    u.monthlyQuota = 0;
+    return "dropped";
+  }
   if (fee > 0 && u.credits !== -1) u.credits = Math.round(((Number(u.credits) || 0) - fee) * 1e6) / 1e6;
   u.subUntil = new Date(Date.now() + 30 * 86400000).toISOString();
   u.subCancel = false;
