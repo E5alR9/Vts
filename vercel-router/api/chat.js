@@ -22,6 +22,13 @@ const MODELS_URL = "https://api.groq.com/openai/v1/models";
 
 const store = require("../lib/store");
 const libAuth = require("../lib/auth");
+const crypto = require("crypto");
+
+// 上下文壓縮：用便宜模型把舊訊息濃縮成摘要（分段 map-reduce）
+// 多模型容錯：不同模型 = 不同的 TPM 桶；20b 被挤爆就换跑道（摘要小，花费可忽略）
+// safeguard-20b 同價、131k 上下文、幾乎沒人用——桶最空，放第二顺位
+const SUMMARY_MODELS = ["openai/gpt-oss-20b", "openai/gpt-oss-safeguard-20b", "openai/gpt-oss-120b", "allam-2-7b"];
+const SUMMARY_MEM = new Map();   // warm 實例內快取（hash→摘要），上限 50 條
 
 // 與本機 router 同步的模型梯隊（本帳號實際存在的 4 個聊天模型）
 const DEFAULT_LADDER = [
@@ -112,6 +119,173 @@ function trimToLimit(b, maxTok) {
   if (!m.length || estPromptPts({ messages: m }) > maxTok) return null;
   return { body: { ...b, messages: m }, dropped };
 }
+
+/** 摘要快取（同一批舊訊息只壓一次）：記憶體 + KV 7 天 */
+function sumHash(s) {
+  return crypto.createHash("sha256").update(s).digest("hex").slice(0, 24);
+}
+async function sumCacheGet(h) {
+  if (SUMMARY_MEM.has(h)) return SUMMARY_MEM.get(h);
+  try {
+    const k = store.kv();
+    if (!k) return null;
+    const raw = await k.get("gr:sum:" + h);
+    const t = raw ? (typeof raw === "string" ? raw : JSON.stringify(raw)) : null;
+    if (t) {
+      if (SUMMARY_MEM.size > 50) SUMMARY_MEM.clear();
+      SUMMARY_MEM.set(h, t);
+      return t;
+    }
+  } catch { /* 快取沒命中就現壓 */ }
+  return null;
+}
+async function sumCacheSet(h, text) {
+  try {
+    if (SUMMARY_MEM.size > 50) SUMMARY_MEM.clear();
+    SUMMARY_MEM.set(h, text);
+    const k = store.kv();
+    if (k) await k.set("gr:sum:" + h, text, { ex: 7 * 86400 });
+  } catch { /* 記失敗不擋路 */ }
+}
+
+/** 單塊摘要：直接打 Groq（不走本路由遞迴），小塊一定過 ITPM */
+async function summarizeOne(chunkText, gkey, model, maxTok) {
+  const ac = new AbortController();
+  const tm = setTimeout(() => ac.abort(), 45000);
+  try {
+    const r = await fetch(GROQ_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${gkey}` },
+      signal: ac.signal,
+      body: JSON.stringify({
+        model: model || SUMMARY_MODELS[0],
+        temperature: 0.2,
+        max_tokens: maxTok || 800,
+        messages: [
+          { role: "system", content: "你是對話上下文壓縮器。把【歷史對話】壓成一段精煉摘要（繁體中文，200~600字）：保留人名/地名/關鍵事件/結論/待辦與未解問題、數字與專有名詞；刪寒暄與重複。只輸出摘要本文，不要前言。" },
+          { role: "user", content: chunkText },
+        ],
+      }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error((j.error && j.error.message) || ("HTTP " + r.status));
+    const text = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content || "").trim();
+    if (!text) throw new Error("empty summary");
+    const u = j.usage || {};
+    return { text, pt: Number(u.prompt_tokens) || 0, ct: Number(u.completion_tokens) || 0, model: model || SUMMARY_MODELS[0] };
+  } finally {
+    clearTimeout(tm);
+  }
+}
+
+/** 單塊摘要（帶跨 key 容錯）：首選「沒被 ITPM 拒過、未冷卻」的 key，
+ *  絕不用剛 413 的那把（它背後 org 的分鐘桶是滿的，小請求一樣被拒） */
+async function summarizeWithModels(chunkText, roundKeys, badKey, models, maxTok) {
+  const now = Date.now();
+  const fresh = (roundKeys || []).filter((k) => k !== badKey && (STATE.cooldownUntil.get("k:" + k) || 0) <= now);
+  const keyCands = [...fresh.slice(0, 3), badKey].filter(Boolean);
+  let lastErr = null;
+  // 模型 × key 矩陣容錯：20b 桶满就换 safeguard/120b/allam（不同模型的 TPM 桶互相独立）
+  for (const m of (models && models.length ? models : SUMMARY_MODELS)) {
+    for (const k of keyCands.slice(0, 2)) {
+      try {
+        return await summarizeOne(chunkText, k, m, maxTok);
+      } catch (e) { lastErr = e; }
+    }
+  }
+  throw lastErr || new Error("summarize failed");
+}
+
+/** 舊名相容（預設跑全模型表） */
+async function summarizeChunkResilient(chunkText, roundKeys, badKey) {
+  return summarizeWithModels(chunkText, roundKeys, badKey, SUMMARY_MODELS);
+}
+
+/** 把舊訊息分段壓成摘要：system 留首、最近 2 則原文、其餘濃縮；單一超長訊息則砍其前段 */
+async function compressMessages(msgs, targetEst, gkey, roundKeys) {
+  const sys = msgs.filter((m) => m.role === "system");
+  const rest = msgs.filter((m) => m.role !== "system");
+  const recent = rest.slice(-2);
+  const older = rest.slice(0, -2);
+  // 只有 0~2 則還超 → 退回截斷最舊前段（跟 trim 同行為）
+  if (!older.length) {
+    const tr = trimToLimit({ messages: msgs }, targetEst);
+    if (!tr) return null;
+    return { messages: tr.body.messages, folded: 0, dropped: tr.dropped, summary: "", sumCost: 0, fromCache: false };
+  }
+  const h = sumHash(JSON.stringify({ o: older, t: targetEst, v: 1 }));
+  const hit = await sumCacheGet(h);
+  let summary, sumCost = 0, fromCache = false;
+  if (hit) {
+    summary = hit;
+    fromCache = true;
+  } else {
+    // 兩輪嘗試：先用標準模型＋大塊（快、品質好）；桶满才退到 allam＋小塊（ctx 只有 4096）
+    const STD_MODELS = ["openai/gpt-oss-20b", "openai/gpt-oss-safeguard-20b", "openai/gpt-oss-120b"];
+    const runPass = async (budget, models, maxTok, mergeCap) => {
+      const chunks = [];
+      let cur = [];
+      for (const m of older) {
+        cur.push(m);
+        if (estPromptPts({ messages: cur }) > budget) {
+          const last = cur.pop();
+          if (cur.length) chunks.push(cur);
+          cur = [last];
+        }
+      }
+      if (cur.length) chunks.push(cur);
+      while (chunks.length > (mergeCap || 6)) {   // 塊太多 → 兩兩合併再壓（省輪次，一塊都不丟）
+        const a = chunks.shift(), b = chunks.shift();
+        chunks.unshift([...a, ...b]);
+      }
+      const parts = [];
+      let cost = 0;
+      const pricing = await store.getPricing().catch(() => ({}));
+      for (const ch of chunks) {
+        const txt = ch.map((m) => `${m.role === "user" ? "user" : "assistant"}: ${String(m.content ?? "")}`).join("\n").slice(0, 20000);
+        const s = await summarizeWithModels(txt, roundKeys, gkey, models, maxTok);
+        parts.push(s.text);
+        cost += store.costFor(s.model || models[0], s.pt, s.ct, pricing);
+      }
+      let sum = parts.join("\n");
+      if (estPromptPts({ messages: [{ role: "system", content: sum }] }) > 1500) {
+        const s2 = await summarizeWithModels(sum.slice(0, 20000), roundKeys, gkey, models, maxTok);   // 合併再壓一輪
+        sum = s2.text;
+        const pricing2 = await store.getPricing().catch(() => ({}));
+        cost += store.costFor(s2.model || models[0], s2.pt, s2.ct, pricing2);
+      }
+      return { summary: sum, sumCost: cost };
+    };
+    try {
+      const r1 = await runPass(5000, STD_MODELS, 800, 6);
+      summary = r1.summary; sumCost = r1.sumCost;
+    } catch (e1) {
+      const m1 = String((e1 && e1.message) || e1).slice(0, 100);
+      try {
+        const r2 = await runPass(1000, ["allam-2-7b"], 400, 12);   // allam ctx 4096＋中文分词差 → 小塊＋短輸出
+        summary = r2.summary; sumCost = r2.sumCost;
+      } catch (e2) {
+        throw new Error(`std[${m1}] allam[${String((e2 && e2.message) || e2).slice(0, 100)}]`);
+      }
+    }
+    await sumCacheSet(h, summary);
+  }
+  const note = `[前文壓縮摘要（${older.length}則舊訊息濃縮，原文 session 完整保留）]\n${summary}`;
+  const out = [...sys, { role: "system", content: note }, ...recent];
+  if (estPromptPts({ messages: out }) > targetEst) return null;   // 壓完還超 → 交給 trim 收尾
+  return { messages: out, folded: older.length, dropped: 0, summary, sumCost, fromCache };
+}
+
+/** ITPM 收斂器：先壓縮（保語義），壓不動才截斷；回 {body, folded, dropped, sumCost} 或 null */
+async function shrinkForItpm(b, targetEst, gkey, roundKeys) {
+  try {
+    const c = await compressMessages(b.messages, targetEst, gkey, roundKeys);
+    if (c && estPromptPts({ messages: c.messages }) <= targetEst) return { ...c, dropped: c.dropped || 0 };
+  } catch { /* 壓縮失敗 → 掉到截斷 */ }
+  const tr = trimToLimit(b, targetEst);
+  if (!tr) return null;
+  return { body: tr.body, folded: 0, dropped: tr.dropped, summary: "", sumCost: 0, fromCache: false };
+}
 function withMax(b, model) {
   if (b.max_tokens !== undefined) return { ...b, model };
   const raw = LIMITS && LIMITS[model];
@@ -159,6 +333,11 @@ function sendJson(res, status, obj) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.end(JSON.stringify(obj));
+}
+
+/** header 值必須 ASCII（Node 對非 ASCII setHeader 直接拋錯）：中文一律轉數字型 */
+function ascii(s) {
+  return String(s == null ? "" : s).replace(/[^\x20-\x7E]/g, "?").slice(0, 200);
 }
 
 function checkAuth(req, res) {
@@ -279,6 +458,32 @@ module.exports = async (req, res) => {
   const ladder = requested ? [requested, ...loadLadder().filter((m) => m !== requested)] : loadLadder();
   const wantStream = body.stream === true;
 
+  // 本發帳本：壓縮摘要花的點數（併入實扣，1:1 如實轉嫁）與展示字串
+  let summaryCostTotal = 0, summaryNote = "", summaryFolded = 0;
+  const pickSummaryKey = (arr) => {
+    const now = Date.now();
+    return arr.find((k) => (STATE.cooldownUntil.get("k:" + k) || 0) <= now) || arr[0];
+  };
+
+  // 預先壓縮：輸入明顯超過免費層 ITPM（est > 已知上限+300）→ 先濃縮再打，省掉一輪 413 來回
+  // 上限取「已知最大」（將來掛 Dev Tier key 會自然墊高）；沒有紀錄時默認 7000
+  {
+    const caps = [...STATE.itpm.values()].filter((v) => Number.isFinite(v) && v > 0);
+    const limHint = caps.length ? Math.max(...caps) : 7000;
+    if (Array.isArray(body.messages) && body.messages.length > 2 && estPromptPts(body) > limHint + 300) {
+      try {
+        const sk = pickSummaryKey(keys);
+        const c = await compressMessages(body.messages, limHint - 400, sk, keys);
+        if (c && estPromptPts({ messages: c.messages }) <= limHint - 400) {
+          body = { ...body, messages: c.messages };
+          summaryCostTotal += c.sumCost || 0;
+          summaryFolded += c.folded || 0;
+          if (c.folded > 0) summaryNote = `${c.folded}則舊訊息→摘要${c.fromCache ? "（快取）" : ""}`;
+        }
+      } catch { /* 預壓失敗 → 走正常流程，413 時再收斂 */ }
+    }
+  }
+
   let lastError = { status: 502, payload: { error: { message: "all keys/models exhausted" } } };
   let reqError = null;   // 優先回報「呼叫端指定模型」的真錯誤（別被梯隊最後的allam遮掉）
 
@@ -297,7 +502,8 @@ module.exports = async (req, res) => {
 
   for (const model of ladder) {
     let modelDead = false;
-    let itpmFails = 0;   // 每模型最多自我校準瘦身3次（防死循環）
+    let itpmFails = 0;   // 每模型最多自我校準收斂 3 次（防死循環）
+    let compressedThisModel = false;   // 本模型已壓過 → 之後只截斷（摘要的摘要沒意義）
 
     // 渠道路由：有啟用且支援此模型的渠道 → 按權重選一個，用它的 keys；
     // 沒有渠道（或 KV 未開）→ 用全池（env + 管理的 keys）
@@ -352,6 +558,8 @@ module.exports = async (req, res) => {
         res.setHeader("x-router-key-index", String(idx));
         res.setHeader("x-router-key-count", String(roundKeys.length));
         if (channelName) res.setHeader("x-router-channel", channelName);
+        if (summaryNote) { try { res.setHeader("x-context-summary", `folded=${summaryFolded}`); } catch {} }
+        if (summaryCostTotal > 0) { try { res.setHeader("x-summary-cost", String(summaryCostTotal)); } catch {} }
         // ZDR（Zero Data Retention）：本中轉全程不存訊息內容，只記 token 流量
         if (channelZdr || process.env.ZDR === "1") res.setHeader("x-router-zdr", "1");
 
@@ -392,7 +600,8 @@ module.exports = async (req, res) => {
           const u2 = (realUsage && Number.isFinite(realUsage.completion_tokens))
             ? { pt: realUsage.prompt_tokens, ct: realUsage.completion_tokens } : est;
           const total = u2.pt + u2.ct;
-          const cost = store.costFor(model, u2.pt, u2.ct, await store.getPricing());
+          const baseCost = store.costFor(model, u2.pt, u2.ct, await store.getPricing());
+          const cost = Math.max(0.000001, Math.round((baseCost + summaryCostTotal) * 1e6) / 1e6);
           let billedLeft = null, planFedFlag = false;
           let win5 = null, winWk = null, cap5 = 0, capWk = 0;   // 方案用量%（給前端顯示）
           if (caller.kind === "user" && caller.user.credits !== -1) {
@@ -432,6 +641,8 @@ module.exports = async (req, res) => {
               inject.x_value = cost;                    // 市價（ROI/展示用）
               inject.x_left = billedLeft;
               inject.x_plan = planFedFlag ? 1 : 0;
+              if (summaryCostTotal > 0) inject.x_sumcost = Math.round(summaryCostTotal * 1e6) / 1e6;
+              if (summaryNote) inject.x_summary = summaryNote;
               if (win5 !== null) inject.x_win = { u5: win5, c5: cap5, uw: winWk, cw: capWk };   // 方案用量%
             }
             res.write(`data: ${JSON.stringify(inject)}\n\n`);
@@ -448,8 +659,9 @@ module.exports = async (req, res) => {
         const text = await upstream.text();
         const usage = parseUsage(text) || estimateTokens(body);
         const realTokens = usage.pt + usage.ct;
-        // 計費：直接按官方價（訂閱期間此值只進窗口/ROI，不動餘額；Free 則照扣）
-        const cost = store.costFor(model, usage.pt, usage.ct, await store.getPricing());
+        // 計費：直接按官方價（訂閱期間此值只進窗口/ROI，不動餘額；Free 則照扣）＋壓縮摘要成本
+        const baseCost = store.costFor(model, usage.pt, usage.ct, await store.getPricing());
+        const cost = Math.max(0.000001, Math.round((baseCost + summaryCostTotal) * 1e6) / 1e6);
         try { await store.recordKeyStat(gkey, { tokens: realTokens }); } catch {}
         try { await store.recordSpeed({ model, tokens: realTokens,
           tps: realTokens / Math.max(0.05, (Date.now() - t0) / 1000),
@@ -510,11 +722,38 @@ module.exports = async (req, res) => {
           const estSent = estPromptPts(body);
           const r = (mReq && estSent > 0) ? (Number(mReq[1]) / estSent) : 0.7;
           const targetEst = Math.floor((lim - 300) / Math.max(0.3, r));
-          const tr = trimToLimit(body, targetEst);
-          if (tr) {
-            body = tr.body;
+          let sh = null, shErr = "";
+          if (!compressedThisModel) {
+            // 第一輪：壓縮（保語義，摘要走別把 key）；壓完還超或壓不動 → 同輪內接著截斷
+            try {
+              const c = await compressMessages(body.messages, targetEst, gkey, roundKeys);
+              if (c && estPromptPts({ messages: c.messages }) <= targetEst) {
+                sh = { ...c, dropped: c.dropped || 0 };
+              } else {
+                shErr = c ? `fit-fail(outEst=${estPromptPts({ messages: c.messages })} tgt=${targetEst})` : "compress-null";
+              }
+            } catch (e) { shErr = String((e && e.message) || e).slice(0, 140); }
+            if (!sh) {
+              const tr = trimToLimit(body, targetEst);
+              if (tr) sh = { body: tr.body, folded: 0, dropped: tr.dropped, sumCost: 0 };
+              else if (!shErr) shErr = "trim-null";
+            }
+            compressedThisModel = true;
+            if (!sh || sh.folded === 0) { try { res.setHeader("x-context-debug", ascii("shrink:" + shErr) || "shrinkTrim"); } catch {} }
+          } else {
+            const tr = trimToLimit(body, targetEst);
+            if (tr) sh = { body: tr.body, folded: 0, dropped: tr.dropped, sumCost: 0 };
+          }
+          if (sh) {
+            body = sh.body;
+            summaryCostTotal += sh.sumCost || 0;
+            summaryFolded += sh.folded || 0;
+            if (sh.folded > 0) summaryNote = `${summaryFolded}則舊訊息→摘要`;
             tries--;                                       // 同一發預算內立刻重打
-            try { res.setHeader("x-context-trimmed", String(tr.dropped)); } catch {}
+            try {
+              res.setHeader("x-context-trimmed", String(sh.dropped || 0));
+              if (sh.folded > 0) res.setHeader("x-context-summary", `folded=${sh.folded}`);
+            } catch {}
             continue;
           }
         }
