@@ -330,7 +330,7 @@
             <option value="openai/gpt-oss-120b">gpt-oss-120b（$0.15 / $0.6）</option>
             <option value="allam-2-7b">allam-2-7b（免費）</option>
           </select>
-          <input type="text" id="playText" placeholder="輸入一句話試試…（Enter 送出 · 上下文＝整個 session）" style="flex:1" onkeydown="if(event.key==='Enter')playRun()">
+          <input type="text" id="playText" placeholder="輸入一句話試試…（Enter 送出 · ↑帶上次 · 上下文＝整個 session）" style="flex:1" onkeydown="playKey(event)">
           <button style="flex:none" onclick="clearChat()" title="開新對話（舊的保留在左側）">🧹</button>
           <button class="primary" style="flex:none" id="playBtn" onclick="playRun()">送出</button>
         </div>
@@ -997,9 +997,32 @@ function addMsg(who, html){
   $("playOut").scrollTop = $("playOut").scrollHeight;
   return b;
 }
+/* ── 輸入歷史：↑帶上次輸入（連按回溯）、↓往新/清空 ── */
+let INPUT_HIST = [], INPUT_IDX = -1;
+function playKey(e){
+  if (e.key === "Enter") { playRun(); return; }
+  if (e.key === "ArrowUp") {
+    e.preventDefault();
+    if (!INPUT_HIST.length) return;
+    if (INPUT_IDX === -1) INPUT_IDX = INPUT_HIST.length;
+    INPUT_IDX = Math.max(0, INPUT_IDX - 1);
+    $("playText").value = INPUT_HIST[INPUT_IDX];
+    return;
+  }
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    if (INPUT_IDX === -1) return;
+    INPUT_IDX++;
+    if (INPUT_IDX >= INPUT_HIST.length) { INPUT_IDX = -1; $("playText").value = ""; }
+    else $("playText").value = INPUT_HIST[INPUT_IDX];
+  }
+}
 async function playRun(){
   const text = $("playText").value.trim();
   if(!text) return toast("請輸入一句話", true);
+  if (INPUT_HIST[INPUT_HIST.length - 1] !== text) INPUT_HIST.push(text);   // 記入輸入歷史
+  if (INPUT_HIST.length > 50) INPUT_HIST.shift();
+  INPUT_IDX = -1;
   $("playText").value = "";                       // 送出即清空輸入框
   const box = $("playOut");
   if(!box.dataset.started){ box.innerHTML = ""; box.dataset.started = "1"; }
