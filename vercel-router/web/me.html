@@ -199,11 +199,11 @@
     </div>
     <div class="muted" id="planRoi" style="margin-top:8px"></div>
     <h2 style="margin-top:16px">📐 用量限制對照表 <small>「不設」＝完全無限制 · 單位＝點（US$1）· 活動期間 5h/週 上限×倍率</small></h2>
-    <table><thead><tr><th>方案</th><th>月費</th><th>5h 上限</th><th>週上限</th><th>月補</th><th>簽到/推薦</th><th>訂閱期間計費</th></tr></thead>
-    <tbody id="planCmpRows"><tr><td colspan="7" class="muted">載入中…</td></tr></tbody></table>
+    <table><thead><tr><th>方案</th><th>月費</th><th>5h 上限</th><th>週上限</th><th>簽到/推薦</th><th>訂閱期間計費</th></tr></thead>
+    <tbody id="planCmpRows"><tr><td colspan="6" class="muted">載入中…</td></tr></tbody></table>
     <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap" id="planBtns"></div>
     <div id="planRenew" style="margin-top:8px"></div>
-    <div class="muted" style="margin-top:8px">訂閱＝30天制：付點數 → 期間 <b>API 吃到飽</b>（5h/週窗口是上限，完全不動餘額），到期自動回 Free 照官方價扣；隨時可降回 Free（不退費）。<br><b>月補</b>＝訂閱期間「每月自動入帳」的回饋點數（月補30＞月費20＝淨賺10），留到降級/到期後可花；<b>月費</b>＝30天的入場費。額度設計＝<b>月含額≈月費×2</b>（Plus：10/週 → 一個月約43 點免費額度 vs 直接付20只有20用量）：打滿就是2倍回本，重度用量一定撞牆（429等滾動）。</div>
+    <div class="muted" style="margin-top:8px">訂閱＝30天制：付點數 → 期間 <b>API 吃到飽</b>（5h/週窗口是上限，完全不動餘額），到期自動回 Free 照官方價扣；隨時可降回 Free（不退費）。<br><b>回饋不靠月補</b>——靠<b>每日簽到</b>（Plus ×1.5＝450/月）＋推薦碼雙向；<b>月費</b>＝30天的入場費。額度設計＝<b>月含額≈月費×2</b>（Plus：10/週 → 一個月約43 點免費額度 vs 直接付20只有20用量）：打滿就是2倍回本，重度用量一定撞牆（429等滾動）。</div>
   </section>
 
   <!-- ════════ 管理：帳號管理 ════════ -->
@@ -286,9 +286,9 @@
 
   <!-- ════════ 管理：方案（預留） ════════ -->
   <section id="secPlans" style="grid-column:span 12">
-    <h2>💎 方案 <small>月費 · 5h/週額度 · 月補 · 獎勵倍率 — 用戶在「帳號/點數」頁用點數訂閱</small></h2>
-    <table><thead><tr><th>方案</th><th>月費(點)</th><th>5h上限(點)</th><th>週上限(點)</th><th>月補點</th><th>獎勵倍率</th></tr></thead>
-    <tbody id="planRows"><tr><td colspan="6" class="muted">載入中…</td></tr></tbody></table>
+    <h2>💎 方案 <small>月費 · 5h/週額度 · 獎勵倍率 — 用戶在「方案 / 訂閱」頁用點數自己訂（回饋靠簽到×倍率，無月補）</small></h2>
+    <table><thead><tr><th>方案</th><th>月費(點)</th><th>5h上限(點)</th><th>週上限(點)</th><th>獎勵倍率</th></tr></thead>
+    <tbody id="planRows"><tr><td colspan="5" class="muted">載入中…</td></tr></tbody></table>
     <div style="margin-top:10px"><button class="primary" onclick="savePlans()">💾 儲存方案</button></div>
     <div class="muted" style="margin-top:8px">用戶在側欄「💎 方案 / 訂閱」頁用<strong>點數</strong>自己訂閱/降級（30天）；管理端「訂閱」鈕=直接指派（可跳過費用，發獎用）。<b>Free＝純付費</b>(0=不限制)；<b>付費檔生效期間＝API吃到飽不扣點</b>（5h/週額滿→429等滾動），月補照發。</div>
   </section>
@@ -471,8 +471,8 @@ async function loadPlan(){
       ["每週上限", j.caps.wk ? `${fmtPts(j.caps.wk)} 點${j.ev ? ` ×${j.ev.mult} 活動中` : ""}` : "–"],
       ["本月 API 消耗", `${fmtPts(j.monthSpend)} 點（＝US$${fmtPts(j.monthSpend)}）`],
       ["本週已用", `${fmtPts(j.usedWk)} / ${j.caps.wk ? fmtPts(j.caps.wk) : "∞"} 點`],
-      ["月補（每月自動入帳）", j.caps.monthlyQuota > 0 ? `每月 +${fmtPts(j.caps.monthlyQuota)} 點「加」進你餘額＝白拿（Free/到期後照樣能花）` : "無（Free 無月補）"],
       ["月費（30天訂閱費）", j.fee > 0 ? `每30天扣 ${fmtPts(j.fee)} 點；到期自動扣續約，可隨時取消` : "免費（Free 無月費）"],
+      ["回饋管道", `每日簽到${j.caps.rewardMult > 1 ? `（你的方案 ×${j.caps.rewardMult}）` : ""} ＋ 推薦碼雙向；無月補`],
       ["計費模式", j.active ? "吃到飽：訂閱期間 API 完全不動點數（5h/週額滿 → 429 等滾動）" : "純付費：照官方價扣點、無窗口"],
     ].map(([k,v])=>`<div>${esc(k)}</div><div>${esc(v)}</div>`).join("");
     const p5 = j.caps.h5 > 0 ? Math.min(100, j.used5 / j.caps.h5 * 100) : 0;
@@ -490,7 +490,7 @@ async function loadPlan(){
       ? (j.roi.paid
         ? `✅ 已回本：本月 API 用量 ${fmtPts(j.roi.spend)} 點 ≥ 方案費 ${fmtPts(j.roi.fee)} 點`
         : `📉 未回本：本月用 ${fmtPts(j.roi.spend)} 點 / 方案費 ${fmtPts(j.roi.fee)} 點（再打 ${fmtPts(Math.max(0, j.roi.fee - j.roi.spend))} 點就回本）`)
-      : "Free ＝ 純付費用戶：打多少扣多少，不設5h/週額度、不設 RPM、不設總量。付費方案＝<b>API 吃到飽（完全不扣點）</b>＋月補＋簽到加倍＋5h/週額度（管理頁可調）。";
+      : "Free ＝ 純付費用戶：打多少扣多少，不設5h/週額度、不設 RPM、不設總量。付費方案＝<b>API 吃到飽（完全不扣點）</b>＋簽到加倍＋5h/週額度（管理頁可調）。";
     $("planBtns").innerHTML = (j.plans || []).map(pl=>{
       const cur = pl.id === j.plan;
       return `<button class="${cur ? "" : "primary"}" ${cur ? "disabled" : ""} onclick="subPlan('${esc(pl.id)}','${esc(pl.label)}',${pl.fee})">${cur ? "✓ " : ""}${esc(pl.label)} · ${pl.fee ? pl.fee + "點/30天" : "免費"}</button>`;
@@ -503,11 +503,10 @@ async function loadPlan(){
         <td>${pl.fee ? `${fmtPts(pl.fee)} 點 / 30天` : "免費"}</td>
         <td>${pl.h5 > 0 ? fmtPts(pl.h5) + " 點" : "不設"}</td>
         <td>${pl.wk > 0 ? fmtPts(pl.wk) + " 點" : "不設"}</td>
-        <td>${pl.monthlyQuota > 0 ? "+" + fmtPts(pl.monthlyQuota) + " 點/月" : "–"}</td>
         <td>×${pl.rewardMult}</td>
         <td>${pl.id === "free" ? '<span class="muted">照官方價扣點</span>' : '<span class="chip ok">吃到飽不扣點</span>'}</td>
       </tr>`;
-    }).join("") || '<tr><td colspan="7" class="muted">尚無資料</td></tr>';
+    }).join("") || '<tr><td colspan="6" class="muted">尚無資料</td></tr>';
     // 續約狀態列：自動續約中 / 已取消（權益留到到期）
     const rr = $("planRenew");
     if (rr) {
@@ -853,12 +852,10 @@ function renderUsers(list){
   if($("userSel")) fillUserSel();   // 用量「👥 用戶」下拉同步最新名單
 }
 async function setSub(tok, name){
-  const plan = prompt(`「${name}」的方案名（free=無訂閱）：`, "pro");
+  const plan = prompt(`「${name}」的方案名（free=解除 / plus / pro / max / ultra）：`, "pro");
   if(plan===null) return;
-  const q = prompt("每月自動補點數（0=無月補）：", "30000");
-  if(q===null) return;
-  try{ await api("users.set",{token:tok, fields:{plan:plan.trim()||"free", monthlyQuota:Number(q)}});
-    toast("訂閱已設定"); loadAll();
+  try{ await api("users.set",{token:tok, fields:{plan:plan.trim()||"free", monthlyQuota:0}});
+    toast("方案已設定（無月補，回饋靠簽到×倍率）"); loadAll();
   }catch(e){ toast("失敗："+e.message, true); }
 }
 async function addUser(){
@@ -1180,7 +1177,6 @@ async function loadPromo(){
       <td><input type="number" data-plan="${esc(id)}" data-f="fee" value="${esc(x.fee ?? 0)}" min="0" step="10" style="max-width:110px"></td>
       <td><input type="number" data-plan="${esc(id)}" data-f="h5" value="${esc(x.h5 ?? 0)}" min="0" step="1" style="max-width:110px"></td>
       <td><input type="number" data-plan="${esc(id)}" data-f="wk" value="${esc(x.wk ?? 0)}" min="0" step="10" style="max-width:120px"></td>
-      <td><input type="number" data-plan="${esc(id)}" data-f="monthlyQuota" value="${esc(x.monthlyQuota||0)}" min="0" step="10" style="max-width:130px"></td>
       <td><input type="number" data-plan="${esc(id)}" data-f="rewardMult" value="${esc(x.rewardMult||1)}" min="1" max="100" step="0.5" style="max-width:100px"></td>
     </tr>`).join("");
   }catch(e){ toast("活動/方案載入失敗："+e.message, true); }

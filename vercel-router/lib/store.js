@@ -423,16 +423,16 @@ async function getUsage(days) {
 }
 
 /* ── 方案（plus/pro/max/ultra 預留）：gr:plans {id:{label,monthlyQuota,rewardMult}} ── */
-/** 方案（分級容量）：fee=30天訂閱費 · h5/wk=額度(0=不限制,Free全0純付費;v5重標定:週上限≈月費等值=回本線)
- *  月補=每月「加發」(不覆寫餘額) · rewardMult=簽到/推薦倍率 · __v 版本遷移 */
+/** 方案（分級容量）：fee=30天訂閱費 · h5/wk=額度(0=不限制,Free全0純付費;v6週=月費/2→月含額≈2×費)
+ *  無月補（回饋靠每日簽到×倍率＋推薦碼） · rewardMult=簽到/推薦倍率 · __v 版本遷移 */
 const DEFAULT_PLANS = {
-  free:  { label: "Free",  monthlyQuota: 0,    rewardMult: 1,   fee: 0,    h5: 0,     wk: 0,     disc: 1 },
-  plus:  { label: "Plus",  monthlyQuota: 30,   rewardMult: 1.5, fee: 20,   h5: 2,     wk: 10,    disc: 0.95 },
-  pro:   { label: "Pro",   monthlyQuota: 150,  rewardMult: 2,   fee: 100,  h5: 10,    wk: 50,    disc: 0.9 },
-  max:   { label: "Max",   monthlyQuota: 900,  rewardMult: 3,   fee: 500,  h5: 50,    wk: 250,   disc: 0.85 },
-  ultra: { label: "Ultra", monthlyQuota: 3500, rewardMult: 5,   fee: 2000, h5: 200,   wk: 1000,  disc: 0.8 },
+  free:  { label: "Free",  monthlyQuota: 0, rewardMult: 1,   fee: 0,    h5: 0,     wk: 0,     disc: 1 },
+  plus:  { label: "Plus",  monthlyQuota: 0, rewardMult: 1.5, fee: 20,   h5: 2,     wk: 10,    disc: 0.95 },
+  pro:   { label: "Pro",   monthlyQuota: 0, rewardMult: 2,   fee: 100,  h5: 10,    wk: 50,    disc: 0.9 },
+  max:   { label: "Max",   monthlyQuota: 0, rewardMult: 3,   fee: 500,  h5: 50,    wk: 250,   disc: 0.85 },
+  ultra: { label: "Ultra", monthlyQuota: 0, rewardMult: 5,   fee: 2000, h5: 200,   wk: 1000,  disc: 0.8 },
 };
-const PLANS_VERSION = 6;   // v6: 週上限=月費/2 → 月含額≈2×月費（比直接付明顯划算；v5的週≈月費=沒優勢）
+const PLANS_VERSION = 7;   // v7: 拔月補（簽到/推薦已是回饋主力，月補多餘）
 
 async function getPlans() {
   const k = kv();
