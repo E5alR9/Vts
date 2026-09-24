@@ -337,7 +337,7 @@ module.exports = async (req, res) => {
           if (body.model) c.model = String(body.model);
           c.messages = msgs;
         }
-        all.sort((x, y) => String(y.updatedAt).localeCompare(String(x.updatedAt)));
+        all.sort((x, y) => String(y.createdAt || y.updatedAt).localeCompare(String(x.createdAt || x.updatedAt)));   // 依建立時間固定排序：回訪舊對話不會跳位
         all = all.slice(0, 30);
         await store.setChats(a.user.token, all);
         return sendJson(res, 200, { ok: true, id: c.id, title: c.title });

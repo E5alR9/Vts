@@ -951,11 +951,15 @@ function renderChatList(){
   }).join("") || '<div class="muted">尚無對話 · 按「＋新對話」開始</div>';
 }
 async function openChat(id){
+  const pb = $("playBtn"); if(pb) pb.disabled = true;   // 載入中禁發送（防交錯存檔弄亂順序）
   try{
     const j = await post({ action: "chats.get", id });
     if(!j.ok) throw new Error((j.error && j.error.message) || "失敗");
     CUR_CHAT = j.chat.id;
     PLAY_HIST = Array.isArray(j.chat.messages) ? j.chat.messages : [];
+    // ↑鍵種子：把這則 session 裡的歷史輸入灌進去（這就是「我有載入session啊」要的）
+    INPUT_HIST = PLAY_HIST.filter(m => m.role === "user").map(m => m.content);
+    INPUT_IDX = -1;
     if(j.chat.model){
       const sel = $("playModel");
       if(sel && [...sel.options].some(o => o.value === j.chat.model)) sel.value = j.chat.model;
@@ -963,6 +967,7 @@ async function openChat(id){
     renderHistory(PLAY_HIST);
     renderChatList();
   }catch(e){ toast("開對話失敗：" + e.message, true); }
+  finally { if(pb) pb.disabled = false; }
 }
 async function delChat(id){
   if(!confirm("刪除這則對話？不可復原。")) return;
