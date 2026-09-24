@@ -52,6 +52,15 @@ let LIMITS = null;   // {modelId: {max, ctx}} — warm instance 抓一次
 async function ensureLimits() {
   if (LIMITS) return;
   try {
+    // ① KV 快取（6h）：別每次冷實例都跨海抓上游
+    try {
+      const kv0 = store.kv();
+      if (kv0) {
+        const raw = await kv0.get("gr:modellimits");
+        const c = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : null;
+        if (c && c.map && Date.now() - (c.at || 0) < 6 * 3600 * 1000) { LIMITS = c.map; return; }
+      }
+    } catch { /* 快取沒命中 → 抓上游 */ }
     const keys = (await store.allKeys()).map((k) => k.key);
     if (!keys.length) return;
     const ac = new AbortController();
@@ -65,7 +74,10 @@ async function ensureLimits() {
       const cx = m.context_window || m.context_length;
       if (mx || cx) map[m.id] = { max: mx || 0, ctx: cx || 0 };
     }
-    if (Object.keys(map).length) LIMITS = map;
+    if (Object.keys(map).length) {
+      LIMITS = map;
+      try { const kv1 = store.kv(); if (kv1) await kv1.set("gr:modellimits", JSON.stringify({ at: Date.now(), map }), { ex: 6 * 3600 }); } catch {}
+    }
   } catch { /* 抓失敗 → 走 MODEL_SPECS 兜底，下次請求再試 */ }
 }
 
@@ -156,6 +168,7 @@ function estimateTokens(body) {
 }
 
 module.exports = async (req, res) => {
+  const T0 = Date.now();   // 量測前置耗時（→ Server-Timing，診斷「第一個token慢」）
   if (req.method !== "POST") return sendJson(res, 405, { error: { message: "POST only" } });
 
   // 鑑權：admin / user token / 舊共用入口
@@ -183,9 +196,9 @@ module.exports = async (req, res) => {
       const users0 = (await store.getUsers()) || {};
       const u0 = users0[caller.user.token];
       if (u0) {
-        const plans = await store.getPlans();
+        const [plans, evRaw] = await Promise.all([store.getPlans(), store.getEvent()]);   // 並行省一輪跨海
         try { if (store.maybeRenew(u0, plans)) await store.setUsers(users0); } catch {}   // 到期自動續約（未取消才扣費）
-        const ev = store.activeEvent(await store.getEvent());
+        const ev = store.activeEvent(evRaw);
         const caps = store.planCapsFor(plans, store.activePlanOf(u0, plans), ev);
         PLAN_CAPS = caps;
         const used5 = store.hourlySpend(u0, 5), usedW = store.hourlySpend(u0, 168);
@@ -249,7 +262,7 @@ module.exports = async (req, res) => {
   let lastError = { status: 502, payload: { error: { message: "all keys/models exhausted" } } };
   let reqError = null;   // 優先回報「呼叫端指定模型」的真錯誤（別被梯隊最後的allam遮掉）
 
-  await ensureLimits();   // 上游模型上限表（每 warm instance 抓一次，失敗走靜態兜底）
+  if (!LIMITS) ensureLimits().catch(() => {});   // 非阻塞：這一發先用靜態表上車，抓好後的請求就有真值
 
   // 上下文快滿 → 友善提早擋（比上游400 "reduce the length" 好讀）
   if (body.messages || body.input) {
@@ -322,6 +335,7 @@ module.exports = async (req, res) => {
           res.setHeader("Content-Type", upstream.headers.get("content-type") || "text/event-stream");
           res.setHeader("Cache-Control", "no-cache");
           res.setHeader("Connection", "keep-alive");
+          try { res.setHeader("Server-Timing", `prep;dur=${Date.now() - T0}`); } catch {}   // 前置耗時可視
           res.flushHeaders?.();
           let realUsage = null, hold = "";
           try {
@@ -436,6 +450,7 @@ module.exports = async (req, res) => {
         }
         res.statusCode = 200;
         res.setHeader("Content-Type", "application/json; charset=utf-8");
+        try { res.setHeader("Server-Timing", `prep;dur=${Date.now() - T0}`); } catch {}
         res.end(text);
         return;
       }

@@ -1147,6 +1147,9 @@ async function playRun(){
     if(usage && usage.total_tokens){
       parts.push(`🔤 <b>${usage.total_tokens}</b> tokens（in ${usage.prompt_tokens ?? "?"} / out ${usage.completion_tokens ?? "?"} · ${usage.estimated ? "約估＝扣點依據" : "實測＝扣點依據"}）`);
     }
+    const stH = r.headers.get("server-timing");
+    const stM = stH && stH.match(/dur=(\d+)/);
+    if (stM) parts.push(`⏱ 前置 ${stM[1]}ms（冷啟動/目錄/連上游；上游首字另需 prefill 時間）`);
     const tail = parts.length ? `<div class="costline">${parts.join(" · ")}</div>` : "";
     bub.innerHTML = (why ? `<div class="reason">🤔 ${esc(why)}</div>` : "") + md(ans) + tail;
     box.scrollTop = box.scrollHeight;
