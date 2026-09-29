@@ -8,11 +8,26 @@ from typing import Tuple
 
 # Project imports
 from core.utils import log_print, get_current_time_string, get_unified_time_prompt, get_silence_ticks, get_uptime_ticks, format_ticks_to_human
+from core import context as context_mgr
+from core import persona as persona_mod
 import services.piano_engine as pe
 from services.piano_engine import get_piano_realtime_prompt
 from mic_live_plugin import os_desktop_sensor
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+
+
+def _register_default_supplements():
+    """預設感官補充源（Airi systemPromptSupplement 式；各源異常自動跳過）。"""
+    try:
+        context_mgr.register("time", lambda ctx: get_unified_time_prompt())
+        context_mgr.register("piano", lambda ctx: pe.get_piano_realtime_prompt())
+        context_mgr.register("os", lambda ctx: os_desktop_sensor.build_os_telemetry_prompt())
+    except Exception:
+        pass
+
+
+_register_default_supplements()
 
 from core.identity import get_owner_name as _get_owner_name
 
@@ -906,6 +921,28 @@ class PromptTemplateEngine:
 
     TOOL_RULES_DESCRIPTION = HARD_TECHNICAL_RULES
 
+    @classmethod
+    def hard_rules(cls, mode=None):
+        """HARD_TECHNICAL_RULES 的真相源（personas/*.md 組裝；讀檔失敗回退舊常數）。"""
+        try:
+            text = persona_mod.hard_rules(mode)
+            if text and text.strip():
+                return text
+        except Exception:
+            pass
+        return cls.HARD_TECHNICAL_RULES
+
+    @classmethod
+    def few_shot_examples(cls, mode=None):
+        """DEFAULT_FEW_SHOT_EXAMPLES 的真相源（personas/7l_fewshots.md；失敗回退舊常數）。"""
+        try:
+            exs = persona_mod.get_fewshot_examples(mode)
+            if exs:
+                return exs
+        except Exception:
+            pass
+        return cls.DEFAULT_FEW_SHOT_EXAMPLES
+
     DEFAULT_FEW_SHOT_EXAMPLES = [
         {
             "scenario": "觀眾問可否加好友",
@@ -949,7 +986,7 @@ class PromptTemplateEngine:
         streamer_bio = knowledge.get("streamer_bio", "")
         conversation_style = knowledge.get("conversation_style", "")
         memes = knowledge.get("memes_and_slang", [])
-        few_shot_exs = knowledge.get("few_shot_examples") or cls.DEFAULT_FEW_SHOT_EXAMPLES
+        few_shot_exs = knowledge.get("few_shot_examples") or cls.few_shot_examples()
         facts = knowledge.get("learned_facts", [])
         rules = knowledge.get("custom_rules", [])
         banned = knowledge.get("banned_phrases", [])
@@ -1026,20 +1063,17 @@ class PromptTemplateEngine:
         cloud_knowledge_prompt: str = "",
         unified_memory_prompt: str = ""
     ) -> str:
-        """建構對話核心 System Prompt (具備大腦心想與俐落短句口語分層，動態注入雲端認知與 OS 遙測)"""
-        piano_guideline = pe.get_piano_realtime_prompt()
-        os_telemetry = os_desktop_sensor.build_os_telemetry_prompt()
-        ck_sec = f"\n{cloud_knowledge_prompt}\n" if cloud_knowledge_prompt else ""
-        um_sec = f"\n{unified_memory_prompt}\n" if unified_memory_prompt else ""
+        """建構對話核心 System Prompt (具備大腦心想與俐落短句口語分層，動態注入雲端認知與 OS 遙測)
 
-        time_prompt = get_unified_time_prompt()
-        return f"""{time_prompt}
-{piano_guideline}
-{os_telemetry}
-{stage2_instructions}
-{ck_sec}
-{um_sec}
-{cls.HARD_TECHNICAL_RULES}
+        層級（由重到輕）：[SYSTEM ROOT] 人格＋雲端認知｜[RUNTIME STATE] 時間／鋼琴／OS
+        ｜[SENSORY] 記憶｜[TASK] 本次對話焦點。簽名與舊內容相容，僅加結構標籤。
+        """
+        _register_default_supplements()  # 冪等：測試或外部 clear() 後自愈
+        state_blocks = context_mgr.collect({})
+        state_text = "\n\n---\n".join(t for _, t in state_blocks)
+        root = ((cloud_knowledge_prompt.strip() + "\n\n") if cloud_knowledge_prompt and cloud_knowledge_prompt.strip() else "") + cls.hard_rules()
+        sensory = [unified_memory_prompt] if unified_memory_prompt and unified_memory_prompt.strip() else []
+        task = f"""{stage2_instructions}
 
 【💬 當前對話環境】
 1. 當前對話對象：{current_target_desc}。
@@ -1056,6 +1090,7 @@ class PromptTemplateEngine:
 - 妳對他的累積印象：{impression_text}
 - 🪞 鏡像自我認知：螢幕上 Live2D 就是妳自己的身體，妳清楚知道自己當前的表情、動作與姿態。
 """
+        return context_mgr.assemble(root=root, state=state_text, sensory=sensory, task=task)
 
     @classmethod
     def build_proactive_system_prompt(
@@ -1068,19 +1103,17 @@ class PromptTemplateEngine:
         cloud_knowledge_prompt: str = "",
         unified_memory_prompt: str = ""
     ) -> str:
-        """建構自主發話視覺大腦 System Prompt (大腦心想 ➔ 隨性短句或靜默陪伴，動態注入雲端認知與 OS 遙測)"""
-        piano_guideline = get_piano_realtime_prompt()
-        os_telemetry = os_desktop_sensor.build_os_telemetry_prompt()
-        thought_sec = f"\n{thoughts_summary}\n" if thoughts_summary else ""
-        ck_sec = f"\n{cloud_knowledge_prompt}\n" if cloud_knowledge_prompt else ""
-        um_sec = f"\n{unified_memory_prompt}\n" if unified_memory_prompt else ""
-        time_prompt = get_unified_time_prompt()
-        return f"""{time_prompt}
-{tiktok_telemetry}
-{piano_guideline}
-{os_telemetry}
-{realtime_summary}{thought_sec}{ck_sec}{um_sec}
-{cls.HARD_TECHNICAL_RULES}
+        """建構自主發話視覺大腦 System Prompt (大腦心想 ➔ 隨性短句或靜默陪伴，動態注入雲端認知與 OS 遙測)
+
+        層級同 build_chat_system_prompt。簽名與舊內容相容。
+        """
+        _register_default_supplements()  # 冪等：測試或外部 clear() 後自愈
+        state_blocks = context_mgr.collect({})
+        state_text = "\n\n---\n".join(t for _, t in state_blocks)
+        root = ((cloud_knowledge_prompt.strip() + "\n\n") if cloud_knowledge_prompt and cloud_knowledge_prompt.strip() else "") + cls.hard_rules()
+        thought_sec = thoughts_summary.strip() if thoughts_summary and thoughts_summary.strip() else ""
+        sensory = [s for s in (realtime_summary, thought_sec, unified_memory_prompt) if s and s.strip()]
+        task = f"""{tiktok_telemetry}
 - 妳正在看著當前螢幕畫面。
 - 🪞 鏡像自我認知：螢幕上 Live2D 模型就是妳自己的身體，妳能看見自己的表情與姿態。
 - 🧠 【生動心流與記憶延續（拒絕機械化監視日誌）】：
@@ -1093,3 +1126,4 @@ class PromptTemplateEngine:
      - 輕鬆放空：若此時只是想放空發呆，就自然在心裡放空，無需強行擠出報告。
   3. 安靜陪伴法則：若老爸正在全神貫注，且妳當前沒有特別重要的事情想開口打擾老爸，請自然安靜守護，直接輸出 [SILENCE]（心想留空或極簡一句，嚴禁囉嗦碎碎念或背誦規範）！
 - 說話自然隨性，自行加上標點符號斷句，禁止使用 Emoji。"""
+        return context_mgr.assemble(root=root, state=state_text, sensory=sensory, task=task)

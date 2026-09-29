@@ -1698,7 +1698,7 @@ async def fetch_fast_text_reply(user_input: str, custom_name: str, situation_pro
     prompt = f"""時間：{get_current_time_string()}
 {ck_sec}
 {rag_sec}
-{PromptTemplateEngine.HARD_TECHNICAL_RULES}
+{PromptTemplateEngine.hard_rules()}
 
 {recent_history_str}{situation_prompt}
 
@@ -1889,7 +1889,7 @@ async def call_gemini_live_audience_reply(vts, input_queue, audience_user: str, 
         sys_instruction = f"""時間：{get_current_time_string()}
 {ck_sec}
 {rag_sec}
-{PromptTemplateEngine.HARD_TECHNICAL_RULES}
+{PromptTemplateEngine.hard_rules()}
 
 {speaker_role_prompt}
 
@@ -4507,7 +4507,7 @@ async def live_timer_sensor_worker(vts, input_queue):
                     music_hint = f"（電腦音樂：{LATEST_SYSTEM_MUSIC_INFO}）" if LATEST_SYSTEM_MUSIC_INFO else ""
                     
                     reminder_messages = [
-                        {"role": "system", "content": PromptTemplateEngine.HARD_TECHNICAL_RULES},
+                        {"role": "system", "content": PromptTemplateEngine.hard_rules()},
                         {"role": "user", "content": f"""時間：{get_current_time_string()}
 【⏰ API Live 定時感測到期提醒】：
 老爸剛才交代妳的時間提醒到了！
