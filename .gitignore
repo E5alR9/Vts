@@ -1,52 +1,140 @@
-# --- secrets / tokens ---
-.env
-.env.backup
-*.envtmp
-6.env
-vts_token.txt
-vts_token.txt.bak
-
-# --- python ---
+# Python
 __pycache__/
 *.py[cod]
-.venv/
-venv/
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.whl
+.Python
 
-# --- generated media / audio ---
-*.wav
+# Virtual environments
+venv/
+env/
+.venv/
+.env/
+
+# Environment files
+.env
+6.env
+*.env
+
+# IDE / Tools
+.vscode/
+.idea/
+.antigravity-ide/
+ai-ide/
+*.suo
+*.user
+
+# OS / Windows system files
+.DS_Store
+Thumbs.db
+desktop.ini
+NTUSER.DAT*
+ntuser.dat*
+ntuser.ini
+
+# Windows user profile system folders
+AppData/
+Application Data/
+Local Settings/
+My Documents/
+Cookies/
+Recent/
+SendTo/
+Templates/
+NetHood/
+PrintHood/
+Favorites/
+Searches/
+Links/
+OneDrive/
+Desktop/
+Downloads/
+Documents/
+
+# Logs & temp
+*.log
+*.tmp
+*.bak
+*.swp
+
+# Audio/Video (large binary files)
 *.mp3
+*.mp4
+*.wav
 *.flac
+*.m4a
+*.ogg
 *.mid
 *.midi
-*.log
 
-# --- os / editor ---
-Thumbs.db
-.DS_Store
+# Models & weights (large files)
+*.pt
+*.pth
+*.onnx
+*.pkl
+*.bin
+*.safetensors
 
-# --- runtime artifacts（每跑一次就變動的產物，不入庫）---
-chat_input.txt
-data/cma_status.txt
-data/last_vision_frame.jpg
-data/*.jpg
-services/data/
-run_v7.log
-subtitle.txt
-STOP_7L.flag
+# HuggingFace cache
+.cache/
 
-# --- large binaries / regenerable artifacts ---
-# Kokoro 模型檔請用 scripts 下載，不入庫（合計約 361MB）
-models/
-# RAG 向量庫（用 python scripts/ingest_rag.py 重建）
-data/rag/
-# bat 依賴安裝完成旗標
+# Scratch / temp work
+scratch/
+
+# GPT-SoVITS (large model files)
+GPT-SoVITS/
+GPT_SoVITS/
+
+# Minecraft / CurseForge
+curseforge/
+xiaoyi_dataset/
+
+# Gemini config
+.gemini/
+# Local tool directories
+.lmstudio/
+.local/
+.kiro/
+.kiro-shared/
+.cline/
+.aws/
+.dsh/
+.config/
+.lmstudio-home-pointer
+
+# Sensitive files
+.env
+.env.*
+!.env.example
+vts_token.txt
+
+# Personal config
+.python_history
+.gitconfig
+.npmrc
 .deps_ok
 
-# 第三方原始碼 / 獨立環境（用腳本重建，不入庫）
-third_party/
-venvs/
-pretrained_models/
+# Temp/cache
+data/current_screen_debug.jpg
+data/last_vision_frame.jpg
+data/screen_gdi.jpg
+data/screen_qt.jpg
+songs_library/cover_cache/
+subtitle.txt
+cma_status.json
+cma_status.txt
 
-# vercel 轉發器（已獨立為 ../groq-router，不在本倉）
-.vercel/
-.env.local
+# Models and checkpoints (too large for GitHub standard push)
+finetune_data/
+models/
+dataset/
+
+# Secrets and local configurations
+config.yaml
+litellm-config.yaml

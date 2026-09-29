@@ -1,0 +1,24 @@
+{
+    "enabled": true,
+    "mode": "random",
+    "light_sounds": [
+        "shocks_light/light_1_aaa.mp3",
+        "shocks_light/light_2_kyaa.mp3",
+        "shocks_light/light_3_burst.mp3",
+        "shocks_light/light_5_short.mp3",
+        "7L_anime_pure_kyaa.wav",
+        "7L_anime_kyatt.wav",
+        "7L_anime_itatt.wav",
+        "opt_light_high.mp3"
+    ],
+    "heavy_sounds": [
+        "shocks_heavy/heavy_1_scream.mp3",
+        "shocks_heavy/heavy_2_stop.mp3",
+        "shocks_heavy/heavy_3_crying.mp3",
+        "shocks_heavy/heavy_4_long.mp3",
+        "7L_anime_hyaa.wav",
+        "7L_anime_moudame.wav",
+        "7L_anime_princess_iyaa.wav",
+        "opt_heavy_high.mp3"
+    ]
+}

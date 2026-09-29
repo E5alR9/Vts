@@ -1,37 +1,9 @@
-import os
 import shutil
 import time
 from datetime import datetime
 
 current_system_notification = ""
 notification_expire_time = 0.0
-
-
-def speech_allowed(private: bool) -> bool:
-    """這句回話是否允許『播出聲音』（直播對象控制的總閘門）。
-
-    private=True → 操作者私訊管道的回話（麥克風 / 鍵盤 / Web 控制台 / 文字檔 /
-    定時提醒 / 喚醒應答）：**預設不播出** —— 觀眾不該聽到 7L 對著空氣跟幕後的
-    操作者講話。回話仍會：寫入記憶、列印主控台、廣播到控制台事件流、
-    先前已套用的表情/計時器照舊生效（這裡只攔「播放」這一步）。
-
-    private=False → 觀眾看得到的管道（TikTok 聊天室含老爸的公開帳號、
-    proactive 主動發言、自主彈琴開場）一律播出。
-
-    要恢復舊行為（對操作者也開口）：設環境變數 OPERATOR_SPEECH=1
-    """
-    if not private:
-        return True
-    return (os.getenv("OPERATOR_SPEECH", "0") or "0").strip().lower() in ("1", "true", "yes")
-
-
-def operator_input_enabled() -> bool:
-    """操作者輸入通道（麥克風 STT / 鍵盤 / chat_input.txt / Web 打字）是否啟用。
-
-    預設**關閉**：直播輸入只接受 Twitch / YouTube Live 聊天室的觀眾留言。
-    要恢復操作者輸入：.env 設 OPERATOR_INPUT=1。
-    """
-    return (os.getenv("OPERATOR_INPUT", "0") or "0").strip().lower() in ("1", "true", "yes")
 
 # ⏱️ 7L 統一神經時間心跳中樞 (Unified Tick Engine: 1 Tick = 1 秒)
 SYSTEM_BOOT_TIME = time.time()
@@ -105,4 +77,4 @@ def get_unified_time_prompt() -> str:
 - 當前現場已安靜了 {silence} Ticks（約 {silence_human}）：
   * 剛說過話（< 60 Ticks / 1分鐘內）：屬於連貫的即時對話，延續當前話題與互動情緒。
   * 專注安靜（60 ~ 600 Ticks / 1~10分鐘）：老爸正專心操作電腦，若老爸開口，自然接話；若自主陪伴，保持安靜守護。
-  * 長期安靜（> 600 Ticks / 10分鐘以上）：老爸已專注很久，開口或自主搭話時可自然帶有時間流逝感（例如：「老爸忙完啦？」、「剛剛專注了好久呢～」），表現出對時間陪伴的真實感知。"""
+  * 長期安靜（> 600 Ticks / 10分鐘以上）：老爸已專注很久，開口或自主搭話時可自然帶有時間流逝感，表現出對時間陪伴的真實感知。"""

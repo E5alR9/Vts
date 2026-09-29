@@ -1,9 +1,13 @@
 # -*- coding: utf-8 -*-
 """列出 .env 各金鑰的長度與前綴（不印出金鑰本體）。
-路徑：以本檔所在目錄為準（不再硬編碼別人的使用者目錄）。"""
+以本檔所在目錄為基準解析路徑，不再硬編碼絕對路徑。"""
 import os
 
 ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+
+if not os.path.exists(ENV_PATH):
+    print(f"找不到環境變數檔案: {ENV_PATH}")
+    exit(1)
 
 with open(ENV_PATH, "r", encoding="utf-8") as f:
     for line in f:

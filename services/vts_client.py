@@ -187,10 +187,9 @@ class RobustVTSClient:
             except Exception:
                 pass
 
-    async def request_authenticate_token(self, timeout: float = 30.0):
+    async def request_authenticate_token(self):
         """向 VTube Studio 申請新 Token。
-        ⚠️ 重要：request() 的 timeout 必須足夠長（預設 30 秒），讓使用者有時間在 VTS 視窗點允許！
-        需要更久（例如手動領取腳本）可傳入 timeout=300。"""
+        ⚠️ 重要：request() 的 timeout 必須足夠長（30秒），讓使用者有時間在 VTS 視窗點允許！"""
         log_print("⏳ [VTS 授權] 正在向 VTube Studio 申請新授權 Token...")
         log_print("   ➡️  請在 VTube Studio 視窗中找到「允許插件連線」彈窗並點選【允許】！")
         resp = await self.request({
@@ -202,7 +201,7 @@ class RobustVTSClient:
                 "pluginName": self.plugin_info.get("plugin_name", "7L_AI_VTuber"),
                 "pluginDeveloper": self.plugin_info.get("developer", "e5_Studio")
             }
-        }, timeout=timeout)  # ⚠️ 讓使用者有時間在 VTS 視窗點允許
+        }, timeout=30.0)  # ⚠️ 必須用 30 秒！讓使用者有時間在 VTS 視窗點允許
         token = resp.get("data", {}).get("authenticationToken")
         if token:
             self.authentic_token = token

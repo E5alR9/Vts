@@ -37,6 +37,9 @@ GET_SWITCHES_CALLBACK = None
 SET_SWITCH_CALLBACK = None
 PUNISH_CALLBACK = None
 REWARD_CALLBACK = None
+# 🎬 伴看授權回呼（由 services/yt_companion_service 掛上）
+APPROVE_YT_COMPANION_CALLBACK = None
+REJECT_YT_COMPANION_CALLBACK = None
 
 # 🛠️ 7L 工具調用紀錄隊列 (保持最近 200 筆)
 TOOL_HISTORY: list = []
@@ -445,6 +448,23 @@ DEFAULT_TOOLS_CATALOG = [
                 "placeholder": "例如：Lemon, 勇者, 晴天"
             }
         ]
+    },
+    {
+        "name": "execute_local_python_code",
+        "category": "creative",
+        "category_name": "多模態創作",
+        "label": "執行本地 Python 程式碼",
+        "description": "在 7L 執行環境中執行自訂 Python 腳本並獲取執行輸出。",
+        "parameters": [
+            {
+                "name": "code_string",
+                "label": "Python 程式碼",
+                "type": "textarea",
+                "default": "print(f'✨ 7L 核心狀態良好，系統時間: {time.strftime(\"%H:%M:%S\")}')",
+                "required": True,
+                "placeholder": "輸入欲執行的 Python 程式碼片段..."
+            }
+        ]
     }
 ]
 
@@ -582,6 +602,26 @@ async def ws_handler(request):
                     elif action == "shutdown":
                         broadcast_event("system_shutdown", {"message": "7L 系統正在安全關機退出..."})
                         asyncio.create_task(perform_shutdown())
+                    elif action == "approve_yt_companion":
+                        ok = False
+                        if APPROVE_YT_COMPANION_CALLBACK:
+                            try:
+                                ok = bool(APPROVE_YT_COMPANION_CALLBACK(data.get("title", "")))
+                            except Exception:
+                                ok = False
+                        await ws.send_str(json.dumps(
+                            {"type": "yt_companion_ack", "data": {"ok": ok, "approved": True}},
+                            ensure_ascii=False))
+                    elif action == "reject_yt_companion":
+                        ok = False
+                        if REJECT_YT_COMPANION_CALLBACK:
+                            try:
+                                ok = bool(REJECT_YT_COMPANION_CALLBACK(data.get("title", "")))
+                            except Exception:
+                                ok = False
+                        await ws.send_str(json.dumps(
+                            {"type": "yt_companion_ack", "data": {"ok": ok, "approved": False}},
+                            ensure_ascii=False))
                 except Exception as ex:
                     print(f"⚠️ [Web後台 WS處理異常]: {ex}")
     finally:
@@ -631,11 +671,6 @@ async def get_full_telemetry(include_full_memory: bool = False) -> Dict[str, Any
 
     return {
         "core": core_state,
-        # 🚦 系統開關旗標（前端用來提示：操作者輸入/發聲是否停用）
-        "system_flags": {
-            "operator_input": (os.getenv("OPERATOR_INPUT", "0") or "0").strip().lower() in ("1", "true", "yes"),
-            "operator_speech": (os.getenv("OPERATOR_SPEECH", "0") or "0").strip().lower() in ("1", "true", "yes"),
-        },
         "tiktok": {
             "is_streaming": is_streaming,
             "active_id": active_id,
@@ -653,6 +688,28 @@ async def api_status(request):
     """取得系統目前快照 (包含完整 300 句全景記憶)"""
     data = await get_full_telemetry(include_full_memory=True)
     return web.json_response(data)
+
+
+async def api_yt_companion_approve(request):
+    """🎬 伴看授權：允許 7L 對當前影片視窗啟動眼耳感官串流（WS 斷線時的 HTTP 備援）"""
+    ok = False
+    if APPROVE_YT_COMPANION_CALLBACK:
+        try:
+            ok = bool(APPROVE_YT_COMPANION_CALLBACK(""))
+        except Exception:
+            ok = False
+    return web.json_response({"ok": ok, "approved": True})
+
+
+async def api_yt_companion_reject(request):
+    """🎬 伴看授權：拒絕本次伴看，後端會進入冷卻，稍後若視窗仍在才會再詢問"""
+    ok = False
+    if REJECT_YT_COMPANION_CALLBACK:
+        try:
+            ok = bool(REJECT_YT_COMPANION_CALLBACK(""))
+        except Exception:
+            ok = False
+    return web.json_response({"ok": ok, "approved": False})
 
 async def api_get_memory(request):
     """取得 7L 全景記憶時間線 (最多 300 句完整對話歷史)"""
@@ -773,50 +830,6 @@ async def api_set_memory_capacity(request):
         return web.json_response(res)
     except Exception as e:
         return web.json_response({"ok": False, "error": str(e)}, status=500)
-
-async def api_get_settings(request):
-    """控制台 .env 設定：讀取白名單表單（機密只回 secret_info，不回值）"""
-    try:
-        from core.env_config import read_settings
-    except Exception as e:
-        return web.json_response({"ok": False, "error": f"設定模組載入失敗: {e}"}, status=500)
-    try:
-        return web.json_response({"ok": True, "settings": read_settings()})
-    except Exception as e:
-        return web.json_response({"ok": False, "error": str(e)}, status=500)
-
-
-async def api_save_settings(request):
-    """控制台 .env 設定：寫入（動 .env 之前 update_settings 會自動備份上一版）"""
-    try:
-        body = await request.json()
-        updates = body.get("settings") if isinstance(body, dict) and "settings" in body else body
-        if not isinstance(updates, dict):
-            return web.json_response({"ok": False, "error": "settings 必須是 {key: value} 物件"}, status=400)
-        from core.env_config import update_settings
-        applied, restart, errors = update_settings({str(k): ("" if v is None else str(v)) for k, v in updates.items()})
-        if errors and not applied:
-            return web.json_response({"ok": False, "applied": [], "restart": [], "errors": errors}, status=400)
-        if restart:
-            broadcast_event("settings_saved", {"applied": applied, "restart": restart,
-                                               "message": "⚠️ 部分設定需重啟 V7 才生效"})
-        return web.json_response({"ok": True, "applied": applied, "restart": restart, "errors": errors,
-                                  "backup": ".env.backup"})
-    except Exception as e:
-        return web.json_response({"ok": False, "error": str(e)}, status=500)
-
-
-async def api_download_env_backup(request):
-    """下載上一版 .env（寫入前的自動備份；不存在回 404）"""
-    try:
-        from core.env_config import ENV_PATH
-        backup = ENV_PATH + ".backup"
-        if not os.path.exists(backup):
-            return web.json_response({"ok": False, "error": "尚無備份（改過一次設定才會有）"}, status=404)
-        return web.FileResponse(backup, headers={"Content-Disposition": "attachment; filename=.env.backup"})
-    except Exception as e:
-        return web.json_response({"ok": False, "error": str(e)}, status=500)
-
 
 async def api_send_message(request):
     """手動發送訊息/指令給 7L"""
@@ -1342,11 +1355,10 @@ async def start_web_dashboard(
     app.router.add_get("/api/tools/history", api_get_tool_history)
     app.router.add_post("/api/tools/execute", api_execute_tool)
     app.router.add_post("/api/tools/clear_history", api_clear_tool_history)
-    app.router.add_get("/api/settings", api_get_settings)
-    app.router.add_post("/api/settings", api_save_settings)
-    app.router.add_get("/api/settings/backup", api_download_env_backup)
     app.router.add_post("/api/restart", api_restart)
     app.router.add_post("/api/shutdown", api_shutdown)
+    app.router.add_post("/api/yt_companion/approve", api_yt_companion_approve)
+    app.router.add_post("/api/yt_companion/reject", api_yt_companion_reject)
 
     async def index(request):
         index_file = os.path.join(web_dir, "index.html")
@@ -1361,9 +1373,6 @@ async def start_web_dashboard(
     await runner.setup()
 
     bind_port = port
-    # 🛡️ 安全預設只綁本機回環：控制台有重啟/關機/執行工具/清空記憶等危險端點，
-    #    綁 0.0.0.0 會讓同網段任何人操作。需要開放給其他機器時設 WEB_BIND_HOST=0.0.0.0。
-    BIND_HOST = (os.getenv("WEB_BIND_HOST") or "127.0.0.1").strip() or "127.0.0.1"
     global MAIN_EVENT_LOOP
     try:
         MAIN_EVENT_LOOP = asyncio.get_running_loop()
@@ -1372,7 +1381,7 @@ async def start_web_dashboard(
 
     for attempt in range(3):
         try:
-            site = web.TCPSite(runner, BIND_HOST, bind_port)
+            site = web.TCPSite(runner, "0.0.0.0", bind_port)
             await site.start()
             print(f"\n🌐 [7L Web 後台] 已成功在 http://127.0.0.1:{bind_port} 啟動！")
             print(f"👉 本機瀏覽器請開啟：http://localhost:{bind_port}\n")
@@ -1388,7 +1397,7 @@ async def start_web_dashboard(
                     # 自動切換備援連接埠 7861
                     bind_port = port + 1
                     try:
-                        site = web.TCPSite(runner, BIND_HOST, bind_port)
+                        site = web.TCPSite(runner, "0.0.0.0", bind_port)
                         await site.start()
                         print(f"\n🌐 [7L Web 後台] 連接埠 {port} 佔用，已自動切換至備援連接埠 http://127.0.0.1:{bind_port} 啟動！")
                         print(f"👉 本機瀏覽器請開啟：http://localhost:{bind_port}\n")

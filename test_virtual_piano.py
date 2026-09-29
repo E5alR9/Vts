@@ -167,7 +167,7 @@ def broadcast_piano_focus(midi_list):
     except Exception:
         pass
 
-MIDI_SHEETS_DIR = "midi_sheets"
+MIDI_SHEETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "midi_sheets")
 os.makedirs(MIDI_SHEETS_DIR, exist_ok=True)
 
 # ────────────────────────────────────────────────────────

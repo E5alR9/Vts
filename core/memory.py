@@ -351,7 +351,7 @@ def _save_unified_memory_to_disk():
     except Exception:
         pass
 
-def append_to_unified_memory(speaker: str, target: str, content: str, role: str = "user", source: str = "text"):
+def append_to_unified_memory(speaker: str, target: str, content: str, role: str = "user", source: str = "text", model: str = ""):
     """🌟 全集中全景記憶中樞雙軌寫入常式：
     - 💬 真實對話（老爸說話、觀眾彈幕、7L 回應、系統事件）：寫入 UNIFIED_DIALOGUE_MEMORY（保留最近數百句，上限 500 句）
     - 💭 內心流動（7L 背景連續思緒、腦內心想）：寫入 UNIFIED_THOUGHT_MEMORY（依字數限制管理，約 1000 字）
@@ -391,7 +391,8 @@ def append_to_unified_memory(speaker: str, target: str, content: str, role: str 
         "target": target,
         "content": clean_c,
         "role": role,
-        "source": source
+        "source": source,
+        "model": model or ""
     }
 
     if is_thought:
@@ -815,9 +816,9 @@ def evaluate_memory_demand(user_input: str, is_voice_input: bool = False, source
     need_news = any(k in low for k in news_keywords)
     return MemoryDemandDecision(
         level=MemoryDemandLevel.STANDARD,
-        u_lim=8,                # 全景時序 8 句（涵蓋最近幾分鐘互動）
-        h_lim=4,                # 歷史對話 4 輪（保持對話連貫）
-        th_lim=180,             # 心流 180 字
+        u_lim=20,               # 全景時序 20 句（從 8 擴至 20，涵蓋更多輪對話脈絡）
+        h_lim=8,                # 歷史對話 8 輪（從 4 擴至 8，大幅改善跨輪記憶連貫性）
+        th_lim=300,             # 心流 300 字（從 180 擴至 300，提升心流感知深度）
         need_news=need_news,    # 依話題動態決定是否查新聞
         single_screen=False,    # 完整視覺感知
         reason="常規日常交流，啟動標準平衡記憶窗口（兼顧上下文脈絡與低延遲）"
@@ -874,6 +875,84 @@ def get_unified_memory_context(limit: int = 100, thought_char_limit: int = 1000)
         sections.append(f"【💭 7L 近期腦內心流思緒（最新約 {total_th_chars} 字連續心聲，體會當前思考狀態，切勿逐字複誦）】：\n" + "\n".join(t_lines))
 
     return "\n\n".join(sections)
+
+def get_structured_board_context(limit: int = 40, thought_char_limit: int = 200) -> str:
+    """📋 看板主腦專用結構化條列（取代 40 句原文直灌）：
+    - 100 句原文只餵哨兵做 should_speak 判定，主提示詞只留本函數的精簡條列，省 token、防 MAX_TOKENS 腰斬
+    - 按說話人分組：老爸近況 / 各觀眾最新一句 / 7L 上一句（防重複）/ 心流要點
+    """
+    global UNIFIED_DIALOGUE_MEMORY
+    if limit <= 0 and thought_char_limit <= 0:
+        return ""
+
+    dialogue_items = list(UNIFIED_DIALOGUE_MEMORY)[-limit:] if limit > 0 else []
+    if not dialogue_items:
+        return ""
+
+    # 1. 按說話人分組，保留最後出現順序（老爸永遠置頂）
+    order: list = []
+    grouped: dict = {}
+    my_last_reply = ""
+    for it in dialogue_items:
+        spk = str(it.get("speaker", "有人")).strip() or "有人"
+        cnt = str(it.get("content", "")).strip()
+        if not cnt:
+            continue
+        # 去標籤雜訊後比對，連續同人同文只留一則
+        clean_c = re.sub(r'\[[A-Z_]+(?::\s*[^\]]+)?\]', '', cnt).strip()
+        if not clean_c:
+            continue
+        if spk == "7L":
+            my_last_reply = clean_c
+            continue
+        key = spk
+        if key not in grouped:
+            grouped[key] = []
+            order.append(key)
+        else:
+            # 同一人在本窗內重複同文只留最新
+            grouped[key] = [c for c in grouped[key] if c[1] != clean_c]
+        grouped[key].append((it.get("time_str", "即時"), clean_c))
+        if key in order:
+            order.remove(key)
+        order.append(key)
+
+    def _is_dad(spk: str) -> bool:
+        return spk in ["老爸", "dad", "E5"] or "老爸" in spk
+
+    lines: list = []
+    # 老爸置頂（最近 2 則）
+    for spk in [s for s in order if _is_dad(s)]:
+        msgs = grouped.get(spk, [])[-2:]
+        if msgs:
+            joined = " ｜ ".join(f"{c[:60]}" for _, c in msgs)
+            lines.append(f"- 👑 老爸近況：{joined}")
+    # 觀眾每人最新一句（最多 6 人，只留最近活躍；排除老爸/系統/7L 自身）
+    viewers = [s for s in order if not _is_dad(s) and s not in ["系統", "7L"]]
+    for spk in viewers[-6:]:
+        msgs = grouped.get(spk, [])
+        if not msgs:
+            continue
+        t_str, c = msgs[-1]
+        short_spk = re.sub(r'^TikTok 觀眾「([^」]+)」$', r'\1', spk)
+        lines.append(f"- 💬 {short_spk}：{c[:80]}")
+    # 7L 上一句（提醒勿重複）
+    if my_last_reply:
+        lines.append(f"- 🤖 7L上一句：{my_last_reply[:80]}（勿重複跳針）")
+    # 心流要點（只取關鍵字級長度）
+    if thought_char_limit > 0:
+        try:
+            thoughts = get_recent_thoughts_by_chars(max_chars=thought_char_limit)
+            if thoughts:
+                key_pts = "；".join(str(it.get("content", "")).strip()[:60] for it in thoughts[-3:] if str(it.get("content", "")).strip())
+                if key_pts:
+                    lines.append(f"- 💭 心流要點：{key_pts[:200]}")
+        except Exception:
+            pass
+
+    if not lines:
+        return ""
+    return "【📜 現場速覽（結構化條列，老爸/觀眾近況一覽，結合最新彈幕理解）】：\n" + "\n".join(lines)
 
 def get_recent_100_memory_context() -> str:
     """提取當前直播間/系統累積的最新 100 句對話記憶 + 約 1000 字近期心流（供潛意識哨兵極速審核）"""

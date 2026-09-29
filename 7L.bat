@@ -5,7 +5,7 @@ cd /d "%~dp0"
 
 if not exist 7L.py (
     echo [錯誤] 找不到本機 7L.py，請確認檔案存在。
-    echo         （已拔除自動從 GitHub 下載覆寫的行為，避免本機修改被蓋掉）
+    echo         （已拔除自動從 GitHub 下載覆寫的行為，避免本機修改被洗掉）
     pause
     exit /b 1
 )
@@ -20,7 +20,7 @@ if not exist .deps_ok (
         echo done> .deps_ok
     )
 ) else (
-    echo [1/2] 依賴已就緒（如需重裝請刪除 .deps_ok）。
+    echo [1/2] 依賴已就緒（如需重新安裝請刪除專案中的 .deps_ok 檔案）。
 )
 
 :run_loop
@@ -29,8 +29,8 @@ python 7L.py
 
 if %ERRORLEVEL% NEQ 0 (
     echo.
-    echo 【提示】機器人連線中斷或 Discord 官方伺服器暫時異常 (500/503)！
-    echo 【自動重試】將在 10 秒後自動嘗試重新連線... (若要退出請按 Ctrl + C)
+    echo 【⚠️ 提示】機器人連線中斷或 Discord 官方伺服器暫時異常 (500/503)！
+    echo 【🔄 自動重試】將在 10 秒後自動嘗試重新連線... (若要退出請按 Ctrl + C)
     timeout /t 10
     goto run_loop
 )

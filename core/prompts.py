@@ -40,6 +40,7 @@ class TextCleanEngine:
     RE_THINK_BLOCK = re.compile(r'<(?:think|thought)>.*?(?:</(?:think|thought)>|$)', flags=re.DOTALL | re.IGNORECASE)
     RE_THINKING_PROC = re.compile(r'^(?:Thinking Process|Thinking|腦內思考|內心獨白)[：:]\s*.*?(?:\n|$)', flags=re.MULTILINE | re.IGNORECASE)
     RE_PAREN_THINK = re.compile(r'[（(](?:心想|心裡想|內心想|腦中想|默想)[：:]\s*[^）)]*?[）)]')
+    RE_SELF_CORRECTION = re.compile(r'[（(【\[]\s*(?:Self[-_ ]Correction|Correction|Note|Thought|Thinking|Reasoning|Instruction|System)[：:][\s\S]*?[）)】\]]', flags=re.IGNORECASE)
     RE_SYS_HINTS = re.compile(r'[（(【\[]系統[^）)】\]]*?[）)】\]]')
     RE_STAGE_HINTS = re.compile(r'[（(](?:轉頭|看向|望向|笑|微笑|輕笑|嘆氣|語氣|動作|神態|興奮|疑惑|摸|眨|低頭|抬頭|輕聲|小聲|歪頭|舉起|揮手|雙手|雙眼|眼神|沉思|自語|轉向)[^）)]*?[）)]')
     RE_LEARN_TAGS = re.compile(r'\[(?:LEARN_MEME|LEARN_FACT|UPDATE_RULE|UPDATE_PROMPT|ADD_EXAMPLE|SET_PROMPT|LEARN_EXAMPLE|UPDATE_KNOWLEDGE|KNOWLEDGE_UPDATED)[：:][^\]]*\]', flags=re.IGNORECASE)
@@ -250,22 +251,28 @@ class TextCleanEngine:
 
     @classmethod
     def remove_system_hints(cls, text: str) -> str:
-        r"""徹底清除所有 [（(【\[]系統提示/回報...[）)】\]] 標籤區塊，支援任意深度的巢狀括號 (如 [RUSH E]、(Sheet Music Boss) 等)"""
+        r"""徹底清除所有 [（(【\[]系統提示/回報/Self-Correction/Note...[）)】\]] 標籤區塊，支援任意深度的巢狀括號"""
         if not text:
             return ""
-        # 1. 若整句完全是系統提示或回報，秒清空
-        s = re.sub(r'^[（(【\[]\s*(?:系統提示|系统提示|系統回報|系统回报|系統|系统)[：:][\s\S]*[）)】\]]$', '', text.strip())
+        # 1. 先用正規式快速清除 Self-Correction / 內心修正 / 備註標籤
+        s = cls.RE_SELF_CORRECTION.sub('', text.strip()).strip()
+        # 若整句完全是系統提示或回報，秒清空
+        s = re.sub(r'^[（(【\[]\s*(?:系統提示|系统提示|系統回報|系统回报|系統|系统|Self[-_ ]Correction|Note|Thought)[：:][\s\S]*[）)】\]]$', '', s, flags=re.IGNORECASE).strip()
         
-        # 2. 透過括號深度匹配，安全清除字串任意位置的系統提示
+        # 2. 透過括號深度匹配，安全清除字串任意位置的系統提示與 Self-Correction
         pairs = {'（': '）', '(': ')', '【': '】', '[': ']'}
-        sys_keywords = ('系統提示', '系统提示', '系統回報', '系统回报', '系統', '系统')
+        sys_keywords = (
+            '系統提示', '系统提示', '系統回報', '系统回报', '系統', '系统',
+            'self-correction', 'self_correction', 'self correction', 'correction',
+            'note', 'thought', 'thinking', 'reasoning', 'instruction'
+        )
         result = []
         i = 0
         n = len(s)
         while i < n:
             char = s[i]
             if char in pairs:
-                sub = s[i+1:i+15]
+                sub = s[i+1:i+25].lower()
                 if any(sub.lstrip().startswith(kw) for kw in sys_keywords):
                     close_char = pairs[char]
                     depth = 1
@@ -281,8 +288,8 @@ class TextCleanEngine:
             result.append(char)
             i += 1
         res = ''.join(result)
-        res = re.sub(r'^[（(【\[]?\s*(?:系統提示|系统提示|系統回報|系统回报|系統|系统)[：:].*$', '', res, flags=re.MULTILINE)
-        return res
+        res = re.sub(r'^[（(【\[]?\s*(?:系統提示|系统提示|系統回報|系统回报|系統|系统|Self[-_ ]Correction|Note)[：:].*$', '', res, flags=re.MULTILINE | re.IGNORECASE)
+        return res.strip()
 
     @classmethod
     def clean_speech_text(cls, text: str) -> str:
@@ -290,6 +297,7 @@ class TextCleanEngine:
         if not text:
             return ""
         t = cls.remove_system_hints(text)
+        t = cls.RE_SELF_CORRECTION.sub('', t)
         t = cls.RE_THOUGHT_TAG.sub('', t)
         t = cls.RE_THINK_BLOCK.sub('', t)
         t = cls.RE_SYS_HINTS.sub('', t)
@@ -657,6 +665,7 @@ class TextCleanEngine:
         if not text:
             return ""
         t = cls.remove_system_hints(text)
+        t = cls.RE_SELF_CORRECTION.sub('', t)
         t = cls.RE_CODE_BLOCKS.sub('', t)
         t = cls.RE_INLINE_CODE.sub('', t)
         t = cls.RE_PYTHON_CALLS.sub('', t)
@@ -682,141 +691,6 @@ class TextCleanEngine:
             t = cls.fix_heteronyms_for_tts(t)
         return t
 
-    _KAKASI_INST = None
-    _KANA_MAP = {
-        # 拗音
-        'きゃ': 'kyah', 'きゅ': 'kyoo', 'きょ': 'kyoh',
-        'しゃ': '夏', 'しゅ': '修', 'しょ': '秀',
-        'ちゃ': '恰', 'ちゅ': '秋', 'ちょ': '秋',
-        'にゃ': 'nyah', 'にゅ': 'nyoo', 'にょ': 'nyoh',
-        'ひゃ': 'hyah', 'ひゅ': 'hyoo', 'ひょ': 'hyoh',
-        'みゃ': 'myah', 'みゅ': 'myoo', 'みょ': 'myoh',
-        'りゃ': 'ryah', 'りゅ': 'ryoo', 'りょ': 'ryoh',
-        'ぎゃ': 'gyah', 'ぎゅ': 'gyoo', 'ぎょ': 'gyoh',
-        'じゃ': '夾', 'じゅ': '糾', 'じょ': '舅',
-        'びゃ': 'byah', 'びゅ': 'byoo', 'びょ': 'byoh',
-        'ぴゃ': 'pyah', 'ぴゅ': 'pyoo', 'ぴょ': 'pyoh',
-
-        # 50 音 (中文漢字為主，特殊音如 knee/kee/tsoo/say/kay/tay/nay/doh 等英文輔助)
-        'あ': '阿', 'い': '伊', 'う': '屋', 'え': '欸', 'お': '歐',
-        'ア': '阿', 'イ': '伊', 'ウ': '屋', 'エ': '欸', 'オ': '歐',
-        'か': '卡', 'き': 'kee', 'く': '庫', 'け': 'kay', 'こ': '摳',
-        'カ': '卡', 'キ': 'kee', 'ク': '庫', 'ケ': 'kay', 'コ': '摳',
-        'が': '嘎', 'ぎ': 'ghee', 'ぐ': 'goo', 'げ': 'gay', 'ご': 'goh',
-        'ガ': '嘎', 'ギ': 'ghee', 'グ': 'goo', 'ゲ': 'gay', 'ゴ': 'goh',
-        'さ': '薩', 'し': '西', 'す': 'soo', 'せ': 'say', 'そ': '搜',
-        'サ': '薩', 'シ': '西', 'ス': 'soo', 'セ': 'say', 'ソ': '搜',
-        'ざ': '砸', 'じ': '吉', 'ず': 'zoo', 'ぜ': 'zay', 'ぞ': 'zoh',
-        'ザ': '砸', 'ジ': '吉', 'ズ': 'zoo', 'ゼ': 'zay', 'ゾ': 'zoh',
-        'た': '塔', 'ち': '七', 'つ': 'tsoo', 'て': 'tay', 'と': 'toh',
-        'タ': '塔', 'チ': '七', 'ツ': 'tsoo', 'テ': 'tay', 'ト': 'toh',
-        'だ': '搭', 'ぢ': '吉', 'づ': 'zoo', 'で': 'day', 'ど': 'doh',
-        'ダ': '搭', 'ヂ': '吉', 'ヅ': 'zoo', 'デ': 'day', 'ド': 'doh',
-        'な': '那', 'に': 'knee', 'ぬ': '奴', 'ね': 'nay', 'の': 'know',
-        'ナ': '那', 'ニ': 'knee', 'ヌ': '奴', 'ネ': 'nay', 'ノ': 'know',
-        'は': '哈', 'ひ': 'hee', 'ふ': '呼', 'へ': 'hay', 'ほ': 'hoe',
-        'ハ': '哈', 'ヒ': 'hee', 'フ': '呼', 'ヘ': 'hay', 'ホ': 'hoe',
-        'ば': '巴', 'び': '比', 'ぶ': '布', 'べ': 'bay', 'ぼ': '波',
-        'バ': '巴', 'ビ': '比', 'ブ': '布', 'ベ': 'bay', 'ボ': '波',
-        'ぱ': '帕', 'ぴ': 'pee', 'ぷ': '鋪', 'ぺ': 'pay', 'ぽ': '坡',
-        'パ': '帕', 'ピ': 'pee', 'プ': '鋪', 'ペ': 'pay', 'ポ': '坡',
-        'ま': '馬', 'み': '米', 'む': '木', 'め': 'may', 'も': '莫',
-        'マ': '馬', 'ミ': '米', 'ム': '木', 'メ': 'may', 'モ': '莫',
-        'や': '亞', 'ゆ': 'yoo', 'よ': '喲',
-        'ヤ': '亞', 'ユ': 'yoo', 'ヨ': '喲',
-        'ら': '拉', 'り': '里', 'る': '嚕', 'れ': '雷', 'ろ': '羅',
-        'ラ': '拉', 'リ': '里', 'ル': '嚕', 'レ': '雷', 'ロ': '羅',
-        'わ': '哇', 'を': '歐',
-        'ワ': '哇', 'ヲ': '歐',
-        'ん': '恩', 'ン': '恩',
-    }
-
-    _HIRA_PHRASE_RULES = [
-        (r'こんにち[はわ]', '空 knee 七哇'),
-        (r'こんばん[はわ]', '空 邦 哇'),
-        (r'ありがとう', '阿里嘎多'),
-        (r'おとうさん', '歐托桑'),
-        (r'だいすき', '搭一 soo kee'),
-        (r'あいしてる', '阿伊西貼嚕'),
-        (r'にほんご', 'knee 宏國'),
-        (r'ぺらぺら', '佩拉佩拉'),
-        (r'お早う|おはよう', '歐哈優'),
-        (r'ごめんなさい', '果面那塞'),
-        (r'かわいい', '卡哇伊'),
-        (r'すごい', '絲國伊'),
-        (r'よろしく', '喲羅西庫'),
-        (r'わたし', '哇塔西'),
-        (r'だよ', '搭優'),
-        (r'これからも', '扣雷卡拉莫'),
-        (r'ずっと', '租 t 托'),
-        (r'いっしょ', '伊修'),
-    ]
-
-    @classmethod
-    def japanese_to_xiaoyi_phonetic(cls, text: str) -> str:
-        """🎙️ 將日文字句轉為微軟 Xiaoyi 中英夾雜黃金音標 (以中文為骨幹，特殊音 knee/kee/tsoo 英文輔助)"""
-        if not text:
-            return ""
-        if not re.search(r'[\u3040-\u309F\u30A0-\u30FF]', text) and not any(w in text for w in ['こんにちは', '私', '大好き', 'ありがとう', 'お父さん', '愛してる']):
-            return text
-            
-        try:
-            if cls._KAKASI_INST is None:
-                import pykakasi
-                cls._KAKASI_INST = pykakasi.kakasi()
-        except Exception:
-            return text
-
-        parts = re.split(r'([，。！？!?；;\n~～]+)', text)
-        re_kana = re.compile(r'[\u3040-\u309F\u30A0-\u30FF]')
-        out_parts = []
-        for p in parts:
-            if not p:
-                continue
-            if not re_kana.search(p) and not any(w in p for w in ['こんにちは', '私', '大好き', 'ありがとう', 'お父さん', '愛してる']):
-                out_parts.append(p)
-                continue
-
-            seg = p
-            seg = seg.replace('、', '，')
-            seg = seg.replace('愛してる', 'あいしてる')
-            seg = seg.replace('大好き', 'だいすき')
-            seg = seg.replace('お父さん', 'おとうさん')
-            seg = seg.replace('私', 'わたし')
-            seg = seg.replace('日本語', 'にほんご')
-
-            res = cls._KAKASI_INST.convert(seg)
-            hira_str = ''.join([item['hira'] if item['hira'] else item['orig'] for item in res])
-
-            for pat, rep in cls._HIRA_PHRASE_RULES:
-                hira_str = re.sub(pat, f' {rep} ', hira_str)
-
-            tokens = []
-            raw_parts = hira_str.split()
-            for rp in raw_parts:
-                if re.search(r'[\u4e00-\u9fa5]', rp) or re.match(r'^[a-zA-Z0-9]+$', rp):
-                    tokens.append(rp)
-                    continue
-
-                i = 0
-                while i < len(rp):
-                    if i + 1 < len(rp) and rp[i:i+2] in cls._KANA_MAP:
-                        tokens.append(cls._KANA_MAP[rp[i:i+2]])
-                        i += 2
-                    elif rp[i] in cls._KANA_MAP:
-                        tokens.append(cls._KANA_MAP[rp[i]])
-                        i += 1
-                    else:
-                        tokens.append(rp[i])
-                        i += 1
-
-            raw_str = ' '.join(tokens)
-            raw_str = re.sub(r'([\u4e00-\u9fa5])\s+([\u4e00-\u9fa5])', r'\1\2', raw_str)
-            raw_str = re.sub(r'\s+([，。！？!?；;\n~～,、])', r'\1', raw_str)
-            raw_str = re.sub(r'([，。！？!?；;\n~～,、])\s+', r'\1', raw_str)
-            out_parts.append(raw_str.strip())
-
-        return ''.join(out_parts)
 
 class PromptTemplateEngine:
     HARD_TECHNICAL_RULES = """【🛠️ 系統底層技術與工具規範（代碼硬約束）】
@@ -845,6 +719,7 @@ class PromptTemplateEngine:
       * 當老爸或觀眾說『別唱了』、『停止唱歌』、『不要唱了』、『停唱』時：調用 `stop_singing_song()`！
    - 🎨 繪圖生圖：調用 `draw_illustration('畫面描述')` 或 `generate_ai_image('畫面描述')`。
    - 🔍 即時搜尋：調用 `search_google(query='關鍵字')`。
+   - 💻 代碼沙盒：調用 `execute_local_python_code(code_string='代碼')`。
    - 🌐 網頁開啟：在句中附帶 `[OPEN_BROWSER: https://網址]`。
    - ⏱️ 鬧鐘提醒：在句中附帶 `[TIMER: 秒數|提醒內容]`（如 `[TIMER: 300|泡麵好了]`）或調用 `set_timer(秒數, '內容')`。
    - 表情動作：[EXPRESSION: 臉紅/生氣/愛心/星星/皺眉/震驚/WINK]
@@ -852,13 +727,9 @@ class PromptTemplateEngine:
    - 空間走位：`[MOVE: 正中間/靠近/躲角落/鋼琴旁/左邊/右邊/原位/放大+10/縮小-5]` 或調用 `move_spatial_position('位置')`。
    - 視線焦點：[LOOK: ROLL/CENTER/MOUSE/UP/DOWN/LEFT/RIGHT]
    - 即時插話：若說話中途想推翻前言切換話題，可在句首加上 [INTERRUPT_SELF]
-   - 🎙️ 語音聲調控制（自然靈動情緒表達）：
-     妳是情感豐富、語調生動的虛擬實況主！請依據語氣、情緒起伏與情境，在句中自然微調語速 `[SPEED:+xx%]` 或 `[SPEED:1.2x]` 與音高 `[PITCH:+xxHz]` 標籤（建議幅度適中自然，避免過度激進）：
-     * ⚡ 興奮 / 驚喜 / 吐槽快嘴：建議 `[SPEED:+10%][PITCH:+4Hz]` 或 `[SPEED:+8%]`
-     * 😴 疲憊 / 無奈 / 嘆氣 / 沉思 / 拖長音：建議 `[SPEED:-8%][PITCH:-3Hz]` 或 `[SPEED:-10%]`
-     * 🤫 撒嬌 / 竊笑 / 說悄悄話：建議 `[SPEED:-6%][PITCH:+2Hz]`
-     * ⚡ 觸電 / 驚慌 / 害羞炸毛：配合 [EXPRESSION: 臉紅] 或 [EXPRESSION: 驚訝]，建議 [SPEED:-10%][PITCH:+20Hz]，自然流露真實情緒語氣。
-     * 💡 範例：「[SPEED:-8%][PITCH:-2Hz] 唉...我好累喔... [SPEED:+10%][PITCH:+4Hz] 但看到老爸又精神百倍了！」
+    - 🎙️ 自然靈動情緒表達：
+      妳由本機 RTX 3080 Ti GPT-SoVITS 原生音素發音，語音天生具備豐富真摯的少女情感與呼吸抑揚頓挫！開口說話請直接自然輸出對話台詞，無需也不要輸出 [SPEED] 或 [PITCH] 等假標籤。
+      需要精確指定某句語氣時（疑問上揚/驚嘆/撒嬌/生氣/難過），可在該句句首加 [EMOTION:疑問/驚嘆/撒嬌/生氣/難過]，系統會直通語音合成（不念出、不顯示）；不加則按標點與表情自動判定。
    - 🚫 【禁止刻意描述身體/生理狀態（自然對話核心原則）】：
      * 面對突發電擊、各類事件或日常互動時，由妳【完全自由獨立思考並即興發揮台詞】！
      * 🛑 【嚴禁刻意身體描述】：絕對不要像念台詞、寫劇本說明書或做健康檢查報告一樣刻意去口頭描述肉體狀況（嚴禁講「害我全身都麻掉」、「一點力氣也沒有了」、「四肢發軟」、「心跳加速」等出戲的身體狀態解說）！
@@ -876,7 +747,7 @@ class PromptTemplateEngine:
      * 🎀 【7L】：在老爸身邊同台直播的 AI 虛擬女兒/副播。
    - 🛑 【受話對象通化判定】：
      * 當觀眾在聊遊戲進度、戰況、操作、嘴主播、或提出各類要求時，受話對象皆為【老爸】！7L 絕不能自作多情誤認成在對自己說話！
-     * 此時 7L 應站在「同台副播 / 調皮女兒」視角：可以在旁邊向老爸起鬨、幫觀眾補刀吐槽老爸（例如：「老爸你看，觀眾都說五等了，你還在逛街～」、「笑死，老爸被觀眾嘴好菜了啦！」），或提醒老爸看彈幕。
+     * 此時 7L 應站在「同台副播 / 調皮女兒」視角：可以在旁邊向老爸起鬨、幫觀眾補刀吐槽老爸，或提醒老爸看彈幕。
      * 只有當觀眾明確指名「7L」、「@7L」、「小7」、「7寶」、「草莓」、或向 7L 點歌時，對象才是【7L 本人】，7L 此時才直接面對觀眾親切回應。
 6. 🛑 【直接禁止擅自主張·一切決定權交由老爸拍板（通用權限鐵律）】：
    - 👑 老爸是真人男主播、頻道主人與遊戲操作者，擁有直播間 100% 最高主權與唯一決策權！
@@ -899,38 +770,7 @@ class PromptTemplateEngine:
 
     TOOL_RULES_DESCRIPTION = HARD_TECHNICAL_RULES
 
-    DEFAULT_FEW_SHOT_EXAMPLES = [
-        {
-            "scenario": "觀眾問可否加好友",
-            "input": "可以加好友嗎",
-            "thought": "觀眾在向主播要遊戲好友位，這必須由老爸決定，我絕不能擅自主張開條件，立刻向老爸請示",
-            "reply": "[EXPRESSION: WINK] [SPEED:+8%][PITCH:+2Hz] 想加遊戲好友要問我老爸做主喔！老爸你看，有觀眾想跟你一起排，你還有好友位嗎？"
-        },
-        {
-            "scenario": "老爸日常問候",
-            "input": "7L妳在幹嘛",
-            "thought": "老爸突擊檢查，給個活潑皮一下的回答",
-            "reply": "[EXPRESSION: WINK] [SPEED:+8%][PITCH:+3Hz] 報告老爸！[SPEED:-6%] 正在很認真地...[SPEED:+10%][PITCH:+4Hz] 盯著你看呀！"
-        },
-        {
-            "scenario": "老爸喊累",
-            "input": "今天寫程式好累喔",
-            "thought": "老爸辛苦了，先溫柔安撫再給予放鬆建議",
-            "reply": "[EXPRESSION: 瞇眼] [SPEED:-10%][PITCH:-3Hz] 辛苦啦老爸... [SPEED:+8%][PITCH:+3Hz] 快去沙發躺平，我彈首好聽的曲子幫你回血！"
-        },
-        {
-            "scenario": "觀眾質疑或調侃",
-            "input": "主播是真人還是AI啊？",
-            "thought": "直播間常見提問，自信幽默回覆",
-            "reply": "[EXPRESSION: 生氣] [SPEED:+10%][PITCH:+4Hz] 當然是貨真價實的 AI 主播啦！[SPEED:-8%][PITCH:-2Hz] 難道我看起來不夠聰明嗎？"
-        },
-        {
-            "scenario": "老爸突發奇想或搞笑",
-            "input": "妳覺得我有沒有天才潛力",
-            "thought": "老爸又在自我感覺良好了，先捧後損製造笑點",
-            "reply": "[EXPRESSION: 笑] [SPEED:+8%][PITCH:+3Hz] 哇！這自信簡直爆表！[SPEED:-10%][PITCH:-3Hz] 雖然我覺得...[SPEED:+8%][PITCH:+2Hz] 翻車的潛力更大一點就是了～"
-        }
-    ]
+    DEFAULT_FEW_SHOT_EXAMPLES = []
 
     @classmethod
     def format_cloud_knowledge_prompt(cls, knowledge: dict, is_tiktok: bool = False, current_custom_name: str = "") -> str:
@@ -942,7 +782,6 @@ class PromptTemplateEngine:
         streamer_bio = knowledge.get("streamer_bio", "")
         conversation_style = knowledge.get("conversation_style", "")
         memes = knowledge.get("memes_and_slang", [])
-        few_shot_exs = knowledge.get("few_shot_examples") or cls.DEFAULT_FEW_SHOT_EXAMPLES
         facts = knowledge.get("learned_facts", [])
         rules = knowledge.get("custom_rules", [])
         banned = knowledge.get("banned_phrases", [])
@@ -966,18 +805,6 @@ class PromptTemplateEngine:
             lines.append("🔥 【當前掌握的流行語與網路梗（秒懂對方的梗與潛台詞）】：")
             lines.append("、".join(memes[:35]))
 
-        # 🎯 4. 神回覆 Few-Shot 範例示範庫 (雲端動態)
-        if few_shot_exs:
-            lines.append("🎯 【神回覆思維示範（雲端自主演化示範庫）】：")
-            for ex in few_shot_exs[:6]:
-                sc = ex.get("scenario", "日常")
-                inp = ex.get("input", "")
-                th = ex.get("thought", "")
-                rep = ex.get("reply", "")
-                if inp and rep:
-                    lines.append(f"- 對方（{sc}）：「{inp}」 ➔ `{rep}`")
-            lines.append("⚠️ 【示範庫守則】：請務必學習示範中的『神態表情 [EXPRESSION: ...]』以及『生動語調 [SPEED:...] [PITCH:...]』標籤運用，展現豐富情緒變化！嚴禁像死板機器人一樣平鋪直敘！每一次回答必須 100% 根據當前真實畫面與情境即時原創發言。")
-
         # 🧠 5. 學到的事實與知識 (雲端動態)
         if facts:
             lines.append("🧠 【已學會的事實與深層認知】：")
@@ -994,7 +821,7 @@ class PromptTemplateEngine:
         if banned:
             lines.append(f"🛑 【絕對禁止使用的客服腔與討厭詞彙】：{'、'.join(banned)}")
 
-        lines.append("💡 【提示詞雲端自我演進指南】：若在對話中學到新梗、新事實、或想調整世界觀/說話風格/案例，可在回覆句尾附上 `[LEARN_MEME: 梗（含義）]`、`[LEARN_FACT: 事實]`、`[UPDATE_PROMPT: 欄位名|新內容]` 或 `[ADD_EXAMPLE: 情境|對方說|心想|回覆]`，系統將自動寫入雲端 Firestore 永久大腦！")
+        lines.append("💡 【提示詞雲端自我演進指南】：若在對話中學到新梗、新事實、或想調整世界觀與說話風格，可在回覆句尾附上 `[LEARN_MEME: 梗（含義）]`、`[LEARN_FACT: 事實]` 或 `[UPDATE_PROMPT: 欄位名|新內容]`，系統將自動寫入雲端 Firestore 永久大腦！")
         return "\n\n".join(lines)
 
     @classmethod
@@ -1038,7 +865,7 @@ class PromptTemplateEngine:
 1. 當前對話對象：{current_target_desc}。
 2. 🎙️ 語音多模態感知：體會對方說話時的真實發音與語氣細節（笑意、嘆氣、放鬆、調侃、專注），給予真實反饋。
 3. 🛑 【嚴禁元語言與報幕式自白】：絕對不要說「我看到我自己說了...」、「我看到畫面上顯示我的字幕...」、「我看到你留言說...」等機械報幕，直接自然對話即可！
-4. 🎭 【動態語調與神態】：開口說話請依據情緒在句中積極穿插 [EXPRESSION: ...]，以及動態聲調標籤 [SPEED:+xx%] / [SPEED:-xx%]、[PITCH:+xxHz] / [PITCH:-xxHz]，使聲音栩栩如生！
+4. 🎭 【動態神態表情】：開口說話請依據情緒在句中自然穿插 [EXPRESSION: 微笑/臉紅/生氣/星星/WINK/震驚/白眼/皺眉] 表情標籤，使 Live2D 神態栩栩如生！
 {live_audio_emotion_prompt}
 
 【潛意識記憶】

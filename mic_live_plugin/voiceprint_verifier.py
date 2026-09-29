@@ -65,8 +65,23 @@ class VoiceprintVerifier:
         self.anchor_7l_embeddings: List[np.ndarray] = []
         self._last_loaded_mtime = 0.0
         self._last_loaded_7l_mtime = 0.0
-        
-        self._init_engine()
+        # 🛡️ 引擎延遲初始化：import 期只建空殼，onnx 模型在首次真正驗證時才載入，
+        # 避免冷啟動期（CPU 被 TTS/IDE 吃滿）卡死在 import 鏈裡
+        self._engine_tried = False
+
+    def _ensure_engine(self) -> bool:
+        """首次使用時初始化引擎（冪等，失敗一次就旁路，不重試拖慢）。"""
+        if self.is_initialized or self._engine_tried:
+            return self.is_initialized
+        self._engine_tried = True
+        try:
+            self._init_engine()
+        except Exception as e:
+            try:
+                safe_print(f"⚠️ [聲紋引擎] 延遲初始化失敗，旁路模式: {e}")
+            except Exception:
+                pass
+        return self.is_initialized
 
     def _ensure_model_exists(self) -> bool:
         """確保 ONNX 模型存在，若無則自動下載"""
@@ -154,6 +169,7 @@ class VoiceprintVerifier:
 
     def compute_embedding(self, audio_input: Union[str, bytes]) -> Optional[np.ndarray]:
         """計算單段音訊的 256 維聲紋特徵向量"""
+        self._ensure_engine()
         if not self.is_initialized or self.extractor is None:
             return None
 
@@ -297,6 +313,7 @@ class VoiceprintVerifier:
         Returns:
             Tuple[bool, float]: (是否為老爸, 相似度得分 0.0 ~ 1.0)
         """
+        self._ensure_engine()
         # 自動偵測聲紋特徵檔更新（免重啟即時熱重載）
         if os.path.exists(self.voiceprint_file):
             try:
@@ -359,9 +376,12 @@ class VoiceprintVerifier:
         if ref_paths:
             candidates.extend(ref_paths)
 
-        # 預設本地標準 7L 參考音檔母帶（統一路徑解析，檔案不存在會自動過濾）
-        from core.paths import ref_voices
-        default_refs = ref_voices()
+        # 預設本地標準 7L 參考音檔母帶
+        default_refs = [
+            r"C:\Users\qiwai\xiaoyi_girl_ref.wav",
+            r"C:\Users\qiwai\xiaoyi_ref.wav",
+            r"C:\Users\qiwai\xiaoyi_japanese_ref.wav"
+        ]
         for dr in default_refs:
             if os.path.exists(dr) and dr not in candidates:
                 candidates.append(dr)
@@ -371,7 +391,7 @@ class VoiceprintVerifier:
             os.path.join(DATA_DIR, "tts_cache"),
             os.path.join(DATA_DIR, "recent_audio"),
             os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output"),
-            os.path.join(GPT_SOVITS_DIR, "output")
+            r"C:\Users\qiwai\GPT-SoVITS\output"
         ]
         import glob
         for s_dir in search_dirs:
@@ -416,6 +436,7 @@ class VoiceprintVerifier:
         Returns:
             Tuple[bool, float]: (是否為 7L, 相似度得分 0.0 ~ 1.0)
         """
+        self._ensure_engine()
         # 自動偵測 7L 聲紋特徵檔更新（免重啟即時熱重載）
         if os.path.exists(self.voiceprint_7l_file):
             try:

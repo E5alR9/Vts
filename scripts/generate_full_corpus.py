@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import os
 """
 High-Emotion 7L Xiaoyi Corpus Generator (160+ Sentences)
 Covers: Ciallo variations, spoiled cute, tsundere, lively streaming, gentle whisper
@@ -11,7 +10,7 @@ import edge_tts
 import soundfile as sf
 import numpy as np
 
-OUTPUT_DIR   = os.path.join(os.path.expanduser("~"), "finetune_data")
+OUTPUT_DIR   = r"C:\Users\qiwai\finetune_data"
 WAV_DIR      = os.path.join(OUTPUT_DIR, "wavs")
 LIST_FILE    = os.path.join(OUTPUT_DIR, "train.list")
 SPEAKER_NAME = "xiaoyiNeural"
@@ -187,7 +186,7 @@ async def main():
         await asyncio.sleep(0.2)
     
     # ── 納入老爸下載的原版 Ciallo.wav ───────────────────────
-    user_ciallo = os.path.join(os.path.expanduser("~"), "Downloads", "Ciallo.wav")
+    user_ciallo = r"C:\Users\qiwai\Downloads\Ciallo.wav"
     if os.path.exists(user_ciallo):
         print("\nIntegrating user's Ciallo.wav master...")
         master_dest = os.path.join(WAV_DIR, "ciallo_original_master.wav")

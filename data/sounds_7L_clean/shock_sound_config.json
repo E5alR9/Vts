@@ -1,0 +1,19 @@
+{
+    "enabled": true,
+    "mode": "pure_mp3_all",
+    "description": "全部純 MP3 叫聲（無多餘文字），區分微電與重電隨機輪播",
+    "light_sounds": [
+        "opt_light_high.mp3",
+        "opt_light_classic.mp3",
+        "test_a_5_pure.mp3",
+        "test_a_6_pure.mp3",
+        "test_a_7_pure.mp3",
+        "test_a_8_pure.mp3"
+    ],
+    "heavy_sounds": [
+        "test_shock_heavy_pure.mp3",
+        "opt_heavy_high.mp3",
+        "shock_heavy_pure.mp3",
+        "opt_heavy_classic.mp3"
+    ]
+}

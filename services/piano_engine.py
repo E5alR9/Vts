@@ -1054,7 +1054,7 @@ async def stop_virtual_piano() -> str:
 
 import mido
 
-MIDI_SHEETS_DIR = "midi_sheets"
+MIDI_SHEETS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "midi_sheets")
 os.makedirs(MIDI_SHEETS_DIR, exist_ok=True)
 MIDI_CATALOG_FILE = os.path.join(MIDI_SHEETS_DIR, "midi_catalog.json")
 
@@ -1672,8 +1672,8 @@ async def play_piano_worker(song_title: str, sheet_text: str, bpm: int, mode: st
                 if not local_p:
                     # 本機沒有時，向 BitMidi 雲端搜尋並自動下載！
                     log_print(f"🌐 [鋼琴電台] 本機無《{seed_song}》，正在從 BitMidi 雲端曲庫下載五線譜...")
-                    dl_p = await asyncio.to_thread(bitmidi_engine.fetch_and_download_first_match, seed_song, MIDI_SHEETS_DIR)
-                    if not dl_p:
+                    dl_p = await asyncio.to_thread(bitmidi_engine.fetch_and_download_first_match, seed_song, MIDI_SHEETS_DIR) if bitmidi_engine is not None else None
+                    if not dl_p and onlinesequencer_engine is not None:
                         log_print(f"🎵 [鋼琴電台] BitMidi 無《{seed_song}》，改從 OnlineSequencer 搜尋...")
                         dl_p = await asyncio.to_thread(onlinesequencer_engine.fetch_and_download_first_match, seed_song, MIDI_SHEETS_DIR)
                     if dl_p and os.path.exists(dl_p):
@@ -1748,9 +1748,21 @@ async def play_piano_worker(song_title: str, sheet_text: str, bpm: int, mode: st
             await asyncio.to_thread(main_obj.update_subtitle, "")
             log_print(f"🎹 [鋼琴舞台] 鋼琴演奏舞台結束，回到常規姿態！")
 
-import bitmidi_engine
-import onlinesequencer_engine
-import pianist_midi_engine
+try:
+    import bitmidi_engine
+except Exception as _e:
+    bitmidi_engine = None
+    print(f"⚠️ [鋼琴引擎] bitmidi_engine 載入失敗（線上抓譜降級為本機曲庫）: {_e}")
+try:
+    import onlinesequencer_engine
+except Exception as _e:
+    onlinesequencer_engine = None
+    print(f"⚠️ [鋼琴引擎] onlinesequencer_engine 載入失敗（線上抓譜降級為本機曲庫）: {_e}")
+try:
+    import pianist_midi_engine
+except Exception as _e:
+    pianist_midi_engine = None
+    print(f"⚠️ [鋼琴引擎] pianist_midi_engine 載入失敗（線上抓譜降級為本機曲庫）: {_e}")
 
 async def play_virtual_piano(song_name: str = "", custom_sheet: str = "", auto_radio_mode: bool = False, midi_file: str = "", force_online: bool = False, requester_name: str = "", target: str = "", is_direct_song_name: bool = False) -> str:
     """讓 7L 在大家面前彈奏 88 鍵鋼琴名曲（支援單曲、多曲同時並發合奏、立即秒切新曲與無限隨機連續電台模式）。
@@ -1923,7 +1935,7 @@ async def play_virtual_piano(song_name: str = "", custom_sheet: str = "", auto_r
                 async def preload_and_queue_worker(song_str: str, req_n: str, req_t: str, c_song: str):
                     try:
                         log_print(f"🌐 [點歌排隊線上搜譜] 正在異步背景搜尋預載《{song_str}》...")
-                        dl_p = await asyncio.to_thread(pianist_midi_engine.fetch_and_download_pianist_match, song_str, MIDI_SHEETS_DIR)
+                        dl_p = await asyncio.to_thread(pianist_midi_engine.fetch_and_download_pianist_match, song_str, MIDI_SHEETS_DIR) if pianist_midi_engine is not None else None
                         if dl_p and os.path.exists(dl_p):
                             t_name = clean_song_title_for_speech(os.path.splitext(os.path.basename(dl_p))[0])
                             save_midi_catalog_entry(song_str, dl_p)
@@ -2044,7 +2056,7 @@ async def play_virtual_piano(song_name: str = "", custom_sheet: str = "", auto_r
         log_print(f"🌐 [智慧曲庫搜尋] 正在線上/YouTube 搜尋《{song_q}》...")
         await move_vts_spatial(target_pos="鋼琴旁", duration=1.2)
         
-        dl_path = await asyncio.to_thread(pianist_midi_engine.fetch_and_download_pianist_match, song_q, MIDI_SHEETS_DIR)
+        dl_path = await asyncio.to_thread(pianist_midi_engine.fetch_and_download_pianist_match, song_q, MIDI_SHEETS_DIR) if pianist_midi_engine is not None else None
         
         if sid != PIANO_SESSION_ID or not is_piano_active:
             log_print(f"🛑 [線上抓譜] 演奏已取消或切換至新曲目，終止本次抓譜接續。")
@@ -2238,8 +2250,8 @@ async def mashup_virtual_piano(*songs, song_name1: str = "", song_name2: str = "
     for s_name in unique_targets:
         p, t = await resolve_local_midi_file(s_name)
         if not p:
-            dl = await asyncio.to_thread(onlinesequencer_engine.fetch_and_download_first_match, s_name, MIDI_SHEETS_DIR)
-            if not dl:
+            dl = await asyncio.to_thread(onlinesequencer_engine.fetch_and_download_first_match, s_name, MIDI_SHEETS_DIR) if onlinesequencer_engine is not None else None
+            if not dl and bitmidi_engine is not None:
                 log_print(f"🎵 [多軌合奏] OnlineSequencer 無《{s_name}》，改從 BitMidi 搜尋...")
                 dl = await asyncio.to_thread(bitmidi_engine.fetch_and_download_first_match, s_name, MIDI_SHEETS_DIR)
             if dl and os.path.exists(dl):

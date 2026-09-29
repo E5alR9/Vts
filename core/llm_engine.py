@@ -4,6 +4,8 @@ import time
 import random
 import groq
 from typing import List, Dict, Tuple
+from dotenv import load_dotenv
+load_dotenv()
 from google.genai import types
 
 import core.websocket_patch  # 🔧 修復 Live API additional_headers 相容性
@@ -21,11 +23,6 @@ UNRESTRICTED_SAFETY_SETTINGS = [
 ]
 
 GEMINI_KEYS = [k.strip() for k in re.split(r'[\s,;]+', os.getenv("GEMINI_API_KEYS") or os.getenv("GEMINI_API_KEY") or "") if k.strip() and len(k.strip()) < 150]
-
-# ⚠️ 非死碼：vts_7L_test.py 會 from core.llm_engine import GROQ_CLIENTS，
-#    並在啟動時自行 append AsyncGroq 客戶端（vts L2016），其後 L698 的搜尋提煉
-#    第二防線會遍歷它。刪掉這個空 list 會讓 vts 直接 ImportError 起不來。
-GROQ_CLIENTS: List = []
 
 KEYS_AUDIENCE_LIVE = GEMINI_KEYS[0:6] if len(GEMINI_KEYS) >= 6 else GEMINI_KEYS
 KEYS_MIND_LIVE     = GEMINI_KEYS[24:30] if len(GEMINI_KEYS) >= 30 else (GEMINI_KEYS[18:24] if len(GEMINI_KEYS) >= 24 else GEMINI_KEYS)  # 🧠 心流 Live 串流專屬金鑰池（獨立通道，不搶觀眾哨兵資源）
@@ -101,14 +98,14 @@ def get_dynamic_live_key_candidates(preferred_pool: List[str]) -> List[str]:
 DEAD_GEMINI_MODELS = set()
 
 STREAMER_MIND_MODELS = [
-    # ⚡ 第 1~4 位：極速秒回前鋒 (實測 0.95s ~ 3s 越快排越前面)
-    "gemini-3.5-flash-lite",               # 🥇 第 1 位：0.95s ~ 1.21s 極速秒回王 (超低延遲輕量防線)
-    "gemini-3.6-flash",                    # 🥈 第 2 位：1.59s 高智商極速主力 (兼具高智商與超低延遲)
-    "gemini-3.1-flash-lite",               # 🥉 第 3 位：1.6s ~ 3.3s 自然口語秒回首選
-    "gemini-3-flash-preview",              # ⚡ 第 4 位：3.1s ~ 4.2s 閃電推理預覽
+    # ⚡ 優先指定三大極速秒回模型
+    "gemini-3-flash-preview",              # ⚡ 第 1 位：閃電推理預覽
+    "gemini-3.1-flash-lite",               # ⚡ 第 2 位：超低延遲輕量秒回
+    "gemini-3.5-flash-lite",               # ⚡ 第 3 位：超大額度輕量保底
+    "gemini-3.6-flash",                    # 🥈 第 4 位：高智商極速主力
     
     # 🧠 第 5~8 位：主力保底與旗艦深度推理大腦
-    "gemini-3.5-flash",                    # 🛡️ 第 5 位：10s ~ 14s 高智商穩定主力保底
+    "gemini-3.5-flash",                    # 🛡️ 第 5 位：高智商穩定主力保底
     "gemini-3.7-flash",                    # 👑 第 6 位：頂配旗艦大腦
     "gemini-3.8-flash",                    # 🚀 第 7 位：2026 全新頂配旗艦大腦
     "gemini-3.1-pro-preview",              # 🧠 第 8 位：超高智商 Pro 預覽
@@ -116,15 +113,17 @@ STREAMER_MIND_MODELS = [
 
 KEYS_VISION        = GEMINI_KEYS[12:18] if len(GEMINI_KEYS) >= 18 else GEMINI_KEYS
 
+GROQ_CLIENTS = []
+
 HIGH_IQ_GEMINI_MODELS = [ 
-    "gemini-3.8-flash",                    # 🚀 第 1 優先：2026 全新頂配旗艦大腦（最強深度思考與頂尖推理）
-    "gemini-3.7-flash",                    # 👑 第 2 位：頂配旗艦大腦（深度思考 Thinking 原生開啟）
-    "gemini-3.6-flash",                    # 👑 第 3 位：高智商旗艦主力，視覺與工具調用精確
-    "gemini-3.5-flash",                    # 🥈 第 4 位：高智商穩定主力保底
-    "gemini-3.1-pro-preview",              # 🧠 第 5 位：超高智商 Pro 預覽
-    "gemini-3-flash-preview",              # ⚡ 第 6 位：閃電推理預覽
-    "gemini-3.5-flash-lite",               # 🛡️ 第 7 位：超大額度輕量保底防線
-    "gemini-3.1-flash-lite",               # ⚡ 第 8 位：超低延遲輕量秒回
+    "gemini-3.8-flash",                    # 🚀 第 1 位：2026 全新頂配旗艦大腦 (高智商思考推理極致)
+    "gemini-3.6-flash",                    # 🥈 第 2 位：高智商極速主力 (理解力與執行力超群)
+    "gemini-3.7-flash",                    # 👑 第 3 位：旗艦大腦深度推理
+    "gemini-3.1-pro-preview",              # 🧠 第 4 位：Pro 深度推理預覽
+    "gemini-3-flash-preview",              # ⚡ 第 5 位：閃電推理預覽
+    "gemini-3.5-flash",                    # 🛡️ 第 6 位：穩定主力保底
+    "gemini-3.1-flash-lite",               # 🥉 第 7 位：超低延遲保底
+    "gemini-3.5-flash-lite",               # ⚡ 第 8 位：超大額度保底
 ]
 
 PROACTIVE_EXCLUDED_MODELS = {

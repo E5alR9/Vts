@@ -372,14 +372,113 @@ async def _yt_companion_session_loop(target_hwnd, initial_rect, initial_title):
         IS_YT_COMPANION_ACTIVE = False
         LATEST_YT_FRAME_BYTES = None
 
+# ── 🎬 伴看授權閘門（網站通知確認）────────────────────────────────────────────
+#   YT_COMPANION_APPROVAL=0            關閉詢問，回到純自動啟動
+#   YT_COMPANION_APPROVAL_TIMEOUT=60   等待老爸在後台回應的秒數（與前端進度條同步）
+#   YT_COMPANION_ON_TIMEOUT=allow|deny 超時未回應：allow=照常啟動／deny=本次不啟動
+#   YT_COMPANION_APPROVAL_COOLDOWN=180 被拒絕後，多少秒內不再詢問
+YT_REQUIRE_APPROVAL = (os.getenv("YT_COMPANION_APPROVAL", "1") or "1").strip() == "1"
+YT_APPROVAL_TIMEOUT = float(os.getenv("YT_COMPANION_APPROVAL_TIMEOUT", "60") or 60)
+YT_APPROVAL_ON_TIMEOUT = (os.getenv("YT_COMPANION_ON_TIMEOUT", "allow") or "allow").strip().lower()
+YT_APPROVAL_COOLDOWN = float(os.getenv("YT_COMPANION_APPROVAL_COOLDOWN", "180") or 180)
+
+_pending_approval = None
+_reject_until = 0.0
+
+
+def _broadcast_yt(event_type: str, payload: dict):
+    try:
+        import services.web_dashboard as _wd
+        _wd.broadcast_event(event_type, payload)
+    except Exception:
+        pass
+
+
+def resolve_yt_approval(approved: bool, title: str = "") -> bool:
+    """由網站後台（WS action 或 /api/yt_companion/*）呼叫：回應當前待審批的伴看請求。"""
+    global _pending_approval
+    if _pending_approval:
+        _pending_approval["approved"] = bool(approved)
+        try:
+            _pending_approval["event"].set()
+        except Exception:
+            pass
+        return True
+    return False
+
+
+async def request_yt_approval(title: str) -> bool:
+    """回 True=允許啟動伴看感官串流；False=拒絕／超時未授權／視窗已離開。"""
+    global _pending_approval, _reject_until
+    if not YT_REQUIRE_APPROVAL:
+        return True
+    now = time.time()
+    if now < _reject_until:
+        return False
+    short_title = (title or "")[:30]
+    ev = asyncio.Event()
+    _pending_approval = {"event": ev, "approved": False, "title": title}
+    _broadcast_yt("yt_companion_request", {"title": title, "short_title": short_title})
+    log_print(f"🔔 [YT 眼耳] 偵測到影片視窗《{short_title}》，等待老爸在網站後台授權伴看...")
+
+    deadline = time.time() + YT_APPROVAL_TIMEOUT
+    window_gone = False
+    while not ev.is_set():
+        remain = deadline - time.time()
+        if remain <= 0:
+            break
+        try:
+            await asyncio.wait_for(ev.wait(), timeout=min(1.0, max(remain, 0.1)))
+        except asyncio.TimeoutError:
+            pass
+        except Exception:
+            break
+        hwnd, _, _ = find_youtube_window()
+        if not hwnd:
+            window_gone = True
+            break
+
+    approved = bool(_pending_approval and _pending_approval.get("approved"))
+    decided = ev.is_set()
+    _pending_approval = None
+
+    if decided and approved:
+        _broadcast_yt("yt_companion_approved", {"title": title})
+        log_print("✅ [YT 眼耳] 老爸已授權，啟動伴看感官串流。")
+        return True
+    if decided and not approved:
+        _broadcast_yt("yt_companion_rejected", {"title": title, "reason": "rejected"})
+        _reject_until = time.time() + YT_APPROVAL_COOLDOWN
+        log_print(f"❌ [YT 眼耳] 老爸拒絕伴看，{int(YT_APPROVAL_COOLDOWN)} 秒內不再詢問。")
+        return False
+
+    _broadcast_yt("yt_companion_rejected", {"title": title, "reason": "timeout"})
+    if window_gone:
+        log_print("💤 [YT 眼耳] 等待授權期間視窗已離開焦點，取消本次伴看。")
+        return False
+    if YT_APPROVAL_ON_TIMEOUT == "deny":
+        _reject_until = time.time() + YT_APPROVAL_COOLDOWN
+        log_print(f"⌛ [YT 眼耳] {int(YT_APPROVAL_TIMEOUT)} 秒未授權，本次不啟動（冷卻 {int(YT_APPROVAL_COOLDOWN)} 秒）。")
+        return False
+    log_print(f"⌛ [YT 眼耳] {int(YT_APPROVAL_TIMEOUT)} 秒未回應，依設定放行啟動伴看。")
+    return True
+
+
 async def start_yt_auto_watcher():
-    """背景守護協程：持續偵測 YouTube 出現並自動連線眼耳感官"""
+    """背景守護協程：偵測 YouTube 出現，經網站授權後自動連線眼耳感官"""
     log_print("👀 [YT 眼耳雷達] 背景視窗偵測守護已啟動")
     while True:
         try:
             if IS_YT_WATCHER_ENABLED and not IS_YT_COMPANION_ACTIVE:
                 hwnd, rect, title = find_youtube_window()
                 if hwnd:
+                    if not await request_yt_approval(title):
+                        await asyncio.sleep(1.5)
+                        continue
+                    hwnd, rect, title = find_youtube_window()
+                    if not hwnd:
+                        await asyncio.sleep(1.5)
+                        continue
                     await _yt_companion_session_loop(hwnd, rect, title)
             await asyncio.sleep(1.5)
         except asyncio.CancelledError:
@@ -388,8 +487,14 @@ async def start_yt_auto_watcher():
             await asyncio.sleep(2.0)
 
 def init_yt_companion():
-    """在系統啟動時初始化並掛入背景任務"""
+    """在系統啟動時初始化：掛上網站授權回呼並啟動背景任務"""
     global _service_task
+    try:
+        import services.web_dashboard as _wd
+        _wd.APPROVE_YT_COMPANION_CALLBACK = lambda title="": resolve_yt_approval(True, title)
+        _wd.REJECT_YT_COMPANION_CALLBACK = lambda title="": resolve_yt_approval(False, title)
+    except Exception:
+        pass
     if _service_task is None:
         _service_task = asyncio.create_task(start_yt_auto_watcher())
     return _service_task
