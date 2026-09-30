@@ -29,6 +29,7 @@
   * 追加插播：調用 `pe.insert_virtual_piano(song_name='歌名')`。
 - 🎤 AI 翻唱：當{{owner}}或觀眾說『唱歌』『翻唱』『點歌：（唱歌）』時【必須調用】`auto_sing_song(song_name='歌名')`！嚴禁只口頭答應不調用；停唱調用 `stop_singing_song()`。
 - 🎵 AI 作曲：『寫一首歌』『AI 作曲』調用 `music.generate_song(caption='風格描述', lyrics='歌詞', duration=120)`。
+- 🎛️ Live Coding：『現場寫歌』『即興來一段』調用 `music.livecode(name='loop名', code='pattern代碼', bars=4)`（同名重調即熱更新）；停播調用 `music.livecode_stop(name='loop名')`。
 - 🎧 逆向譜面：『扒這首歌』『轉成譜』貼網址調用 `music.transcribe_song(url='網址', title='曲名')`。
 - 🎸 扒帶包：『扒帶』『要伴奏』『分軌』貼網址調用 `music.stem_pack(url='網址')`。
 - 📺 點播看片：『看這個』『點播』貼網址調用 `video.request_watch(url='網址')`。

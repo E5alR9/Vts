@@ -345,6 +345,32 @@ INTERACTIONS_TOOLS = [
     },
     {
         "type": "function",
+        "name": "music.livecode",
+        "description": "🎛️ Live Coding 現場寫碼演奏：AI 寫 pattern code（bpm/drums/bass/stab/lead 行，支援 euclid 歐幾里得節奏），同名 loop 熱更新不中斷。當老爸或觀眾說『現場寫歌』、『live coding』、『即興來一段』時調用！",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "loop 名（同名重調即熱更新換曲）"},
+                "code": {"type": "string", "description": "pattern 代碼（例：bpm 100\\ndrums bd:x-x- sn:--x-\\nbass key=Am deg=1 5 4 4）"},
+                "bars": {"type": "integer", "description": "循環小節數（預設 4）"}
+            },
+            "required": ["name", "code"]
+        }
+    },
+    {
+        "type": "function",
+        "name": "music.livecode_stop",
+        "description": "停止指定的 Live Coding loop。當說『停』『別播了』時調用！",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "loop 名（空＝全停）"}
+            },
+            "required": []
+        }
+    },
+    {
+        "type": "function",
         "name": "pe.mashup_virtual_piano",
         "description": "7L 將多首高難度鋼琴曲同時並發演奏 (無數量限制！可同時彈 2首、3首、4首甚至更多，多軌多色瀑布流極限演奏)。當老爸或觀眾說『把A跟B混在一起彈』、『同時彈A、B、C』、『A x B x C 合體』、『A + B + C 多曲合奏』、『把多首練習曲雜在一起彈』時調用。",
         "parameters": {
@@ -999,6 +1025,27 @@ async def execute_tool_dispatch(fn_name: str, fn_args: dict, caller_target: str 
                                f"→ {os.path.basename(_sres['dir'])}，請播報）")
         else:
             extracted_text += f" （系統回報：扒帶失敗：{_sres.get('error', '')}）"
+    elif fn_name in ["music.livecode", "livecode"]:
+        import services.livecode as _lc
+        _lname = fn_args.get("name", "main") or "main"
+        _lcode = fn_args.get("code", "")
+        _lbars = int(fn_args.get("bars", 4) or 4)
+        try:
+            _lc.live(_lname, _lcode, sink=_lc.live_sink(), bars=max(1, min(16, _lbars)))
+            extracted_text += f" （系統回報：Live Coding loop「{_lname}」開演／熱更新，請播報）"
+        except Exception as _e:
+            extracted_text += f" （系統回報：Live Coding 啟動失敗：{str(_e)[:120]}）"
+    elif fn_name in ["music.livecode_stop", "livecode_stop"]:
+        import services.livecode as _lc2
+        _sname = fn_args.get("name", "")
+        try:
+            if _sname:
+                _lc2.stop(_sname)
+            else:
+                _lc2.stop_all()
+            extracted_text += " （系統回報：Live Coding 已停止）"
+        except Exception as _e:
+            extracted_text += f" （系統回報：停止失敗：{str(_e)[:120]}）"
     elif fn_name in ["pe.mashup_virtual_piano", "mashup_virtual_piano"]:
         s1 = fn_args.get("song_name1", "")
         s2 = fn_args.get("song_name2", "")
