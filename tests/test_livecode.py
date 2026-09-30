@@ -52,3 +52,22 @@ def test_live_hot_update():
     assert len(loop.events) > 1
     lc.stop("t1")
     assert "t1" not in lc.LiveLoop.registry
+
+
+def test_foxdot_codegen():
+    p = lc.parse_code("bpm 100\ndrums bd:x-x-\nbass key=Am deg=1 5\nlead notes=69,72 prog=81")
+    code = lc.to_foxdot(p)
+    assert "Clock.bpm = 100" in code
+    assert 'play("x-x-")' in code
+    assert "bass([1, 5]" in code
+    assert "pluck(" in code and "oct=" in code
+    assert lc.midi_to_foxdot(69) == (4, 5)
+    assert lc.midi_to_foxdot(60) == (4, 0)
+
+
+def test_sonicpi_codegen():
+    p = lc.parse_code("bpm 100\ndrums bd:x-x- sn:--x-\nbass key=Am deg=1 5")
+    code = lc.to_sonicpi(p, "seven")
+    assert "live_loop :seven" in code
+    assert "sample :bd_haus" in code and "sample :sn_dub" in code
+    assert "sleep 0.25" in code

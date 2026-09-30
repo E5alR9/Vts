@@ -1027,22 +1027,29 @@ async def execute_tool_dispatch(fn_name: str, fn_args: dict, caller_target: str 
             extracted_text += f" （系統回報：扒帶失敗：{_sres.get('error', '')}）"
     elif fn_name in ["music.livecode", "livecode"]:
         import services.livecode as _lc
+        import services.livecode_sc as _lcs
         _lname = fn_args.get("name", "main") or "main"
         _lcode = fn_args.get("code", "")
         _lbars = int(fn_args.get("bars", 4) or 4)
+        _be = _lcs.backend()
         try:
-            _lc.live(_lname, _lcode, sink=_lc.live_sink(), bars=max(1, min(16, _lbars)))
-            extracted_text += f" （系統回報：Live Coding loop「{_lname}」開演／熱更新，請播報）"
+            if _be in ("foxdot", "sonicpi"):
+                _note = _lcs.play_backend(_be, _lname, _lcode, _lbars)
+            else:
+                _lc.live(_lname, _lcode, sink=_lc.live_sink(), bars=max(1, min(16, _lbars)))
+                _note = f"內建引擎演奏中（loop {_lname}）"
+            extracted_text += f" （系統回報：Live Coding {_note}，請播報）"
         except Exception as _e:
-            extracted_text += f" （系統回報：Live Coding 啟動失敗：{str(_e)[:120]}）"
+            try:  # 外部引擎缺件→退回內建引擎不斷演
+                _lc.live(_lname, _lcode, sink=_lc.live_sink(), bars=max(1, min(16, _lbars)))
+                extracted_text += f" （系統回報：外部引擎不可用（{str(_e)[:80]}），已退回內建引擎演奏）"
+            except Exception as _e2:
+                extracted_text += f" （系統回報：Live Coding 啟動失敗：{str(_e2)[:120]}）"
     elif fn_name in ["music.livecode_stop", "livecode_stop"]:
-        import services.livecode as _lc2
+        import services.livecode_sc as _lcs2
         _sname = fn_args.get("name", "")
         try:
-            if _sname:
-                _lc2.stop(_sname)
-            else:
-                _lc2.stop_all()
+            _lcs2.stop_backend(_lcs2.backend(), _sname)
             extracted_text += " （系統回報：Live Coding 已停止）"
         except Exception as _e:
             extracted_text += f" （系統回報：停止失敗：{str(_e)[:120]}）"

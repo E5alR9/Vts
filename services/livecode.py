@@ -99,8 +99,10 @@ def parse_code(code: str) -> dict:
                 nm, _, spec = part.partition(":")
                 nm = nm.strip()
                 if nm in DRUM_NOTES and spec:
+                    gridstr = "".join("x" if c in "xX" else "-" for c in spec.strip()
+                                     if c in "xX.-")
                     tracks.append({"kind": "drum", "name": nm, "grid": parse_grid(spec),
-                                   "note": DRUM_NOTES[nm], "vel": 95})
+                                   "note": DRUM_NOTES[nm], "vel": 95, "_gridstr": gridstr})
             continue
         if head in ("bass", "lead", "stab"):
             kv = dict(re.findall(r"(\w+)\s*=\s*([^=\s]+(?:\s+[^=\s]+)*?)(?=\s+\w+\s*=|$)", rest))
@@ -112,7 +114,7 @@ def parse_code(code: str) -> dict:
                 degs = [int(d) for d in re.findall(r"-?\d+", kv.get("deg", "1"))]
                 notes = [deg_to_midi(key, d) for d in degs] or [57]
                 tracks.append({"kind": "notes", "name": "bass", "grid": grid, "notes": notes,
-                               "prog": prog, "vel": vel})
+                               "prog": prog, "vel": vel, "_degs": degs or [1]})
             elif head == "stab":
                 chord = CHORDS.get(kv.get("chord", "Am"), CHORDS["Am"])
                 tracks.append({"kind": "chord", "name": "stab", "grid": grid, "notes": chord,
@@ -260,6 +262,75 @@ def render_offline(parsed: dict, bars: int = 2, bank=None, sr: int = 44100):
     if peak > 0:
         mix /= peak
     return mix.astype(np.float32), total
+
+
+def midi_to_foxdot(midi: int):
+    """MIDI 音高 → FoxDot (oct, degree)（C 大調級數；best-effort）。"""
+    midi = max(0, min(127, int(midi)))
+    pcs = [0, 2, 4, 5, 7, 9, 11]
+    pc = midi % 12
+    deg = min(range(7), key=lambda d: abs(pcs[d] - pc))
+    octv = midi // 12 - 1
+    return octv, deg
+
+
+def to_foxdot(parsed: dict) -> str:
+    """parsed → FoxDot Python 代碼（best-effort，FoxDot 0.8 API；dry-run 可先貼 IDE 驗）。
+    度數直通（bass deg 即 FoxDot 級數），主音 MIDI 轉級數＋oct。"""
+    lines = [f"Clock.bpm = {parsed.get('bpm', 100)}", 'Scale.default = "minor"']
+    for i, tr in enumerate(parsed.get("tracks", [])):
+        tag = f"{tr.get('name', 't')}{i}"
+        if tr.get("kind") == "drum":
+            lines.append(f'p_{tag} >> play("{tr.get("_gridstr") or "x"}")')
+        elif tr.get("name") == "bass":
+            degs = tr.get("_degs") or [1]
+            lines.append(f'b_{tag} >> bass({degs}, dur=1)')
+        elif tr.get("name") == "stab":
+            _sg = "".join("x" if g else "-" for g in (tr.get("grid") or [1]))
+            lines.append(f'k_{tag} >> keys("{_sg}")')
+        else:
+            from collections import defaultdict as _dd
+            groups = _dd(list)
+            for n in (tr.get("notes") or [69]):
+                o, d = midi_to_foxdot(n)
+                groups[o].append(d)
+            for oi, (o, ds) in enumerate(sorted(groups.items())):
+                lines.append(f'l_{tag}_{oi} >> pluck({ds}, oct={o})')
+    return "\n".join(lines) + "\n"
+
+
+_SONIC_DRUMS = {"bd": "bd_haus", "sn": "sn_dub", "hh": "hat_tap", "oh": "hat_open",
+                "tom": "tom_mid", "clap": "perc_snap", "crash": "cym_crash", "ride": "cym_ride"}
+
+
+def to_sonicpi(parsed: dict, name: str = "seven") -> str:
+    """parsed → Sonic Pi Ruby 代碼（16 步直寫，sleep 0.25；Sonic Pi 4.x）。"""
+    safe = re.sub(r"[^a-zA-Z0-9_]", "_", name or "seven") or "seven"
+    body = [f"live_loop :{safe} do", f"  use_bpm {parsed.get('bpm', 100)}", "  16.times do |i|"]
+    for tr in parsed.get("tracks", []):
+        grid = tr.get("grid") or [1]
+        cyc = max(1, len(grid))
+        hits = [s for s in range(16) if grid[s % cyc]]
+        if not hits:
+            continue
+        cond = " or ".join(f"i == {s}" for s in hits)
+        if tr.get("kind") == "drum":
+            smp = _SONIC_DRUMS.get(tr.get("name", ""), "perc_bell")
+            body.append(f"    sample :{smp} if {cond}")
+        elif tr.get("name") == "bass":
+            notes = tr.get("_midis") or [45]
+            seq = ", ".join(str(n) for n in notes)
+            body.append(f"    play [ {seq} ][i % {len(notes)}], release: 0.4 if {cond}")
+        elif tr.get("name") == "stab":
+            notes = tr.get("notes") or [57, 60, 64]
+            seq = ", ".join(str(n) for n in notes)
+            body.append(f"    play [{seq}] if {cond}")
+        else:
+            notes = tr.get("notes") or [69]
+            seq = ", ".join(str(n) for n in notes)
+            body.append(f"    play [{seq}][i % {len(notes)}] if {cond}")
+    body += ["    sleep 0.25", "  end", "end"]
+    return "\n".join(body) + "\n"
 
 
 def live(name: str, code: str, sink=None, bars: int = 4) -> LiveLoop:

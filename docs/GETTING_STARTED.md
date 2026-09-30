@@ -69,3 +69,16 @@ V7.bat            # CosyVoice → 主程式 → 看門狗（一鍵）
 | 記憶混了 | 檢查檔名後綴 `_companion`／`_vtuber`；舊無後綴檔已廢棄 |
 
 進階：`docs/AI_SOURCES.md`（全部 AI 來源＋配額）、`modes/workers.py`（裝配宣告）。
+
+## 附：Live Coding 工具鏈（選配）
+
+內建 `mini` 後端零依賴直接玩。要 FoxDot／Sonic Pi（SuperCollider 同捆）：
+
+```powershell
+# 管理員 PowerShell
+scripts\install_livecoding.ps1
+```
+
+裝完 `.env`（或控制台）設 `LIVECODE_BACKEND=foxdot` 或 `sonicpi`
+（Sonic Pi 要先打開 App）。缺件會自動退回 mini。Tidal 需手裝
+Haskell/GHC（約 2GB），故不打包，見腳本內提示。

@@ -25,6 +25,7 @@
 | mic 快覽 | GOOGLE-WEB-SPEECH | `recognize_google(zh-TW)`（`listen_once_fast`） | 無 | 非官方 | 深層理解走 Gemini Live audio_b64 |
 | 系統音／轉錄備援 | LOCAL-faster-whisper | `services/stt.py`（`STT_BACKEND=auto`，small／CPU int8） | 無 | 無 | Google 失敗自動退本地 |
 | 本地第四條腿 | LOCAL-Ollama | `services/gemma_local.py`（gemma3:4b 文字視覺） | `GEMMA_ENABLED`（預設 0） | 無 | 伴侶隱私＋視覺初篩；無服務不炸 |
+| Live Coding 外部引擎 | EXTERNAL | `services/livecode_sc.py`（FoxDot 子行程橋／Sonic Pi OSC 橋；安裝見 `scripts/install_livecoding.ps1`） | `LIVECODE_BACKEND`（mini／foxdot／sonicpi，預設 mini） | 無（本機） | 缺件自動退回 mini；Tidal 需手裝 GHC 不打包 |
 
 ## 記憶／檢索／搜尋
 

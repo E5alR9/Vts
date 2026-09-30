@@ -59,6 +59,8 @@ SETTINGS_SPECS: List[Dict[str, Any]] = [
      "restart": True, "default": "0"},
     {"key": "ACESTEP_URL", "label": "ACE-Step 服務位址", "type": "str", "restart": True,
      "default": "http://127.0.0.1:7865"},
+    {"key": "LIVECODE_BACKEND", "label": "Live Coding 後端（mini 零依賴／foxdot／sonicpi）", "type": "choice",
+     "choices": ["mini", "foxdot", "sonicpi"], "restart": True, "default": "mini"},
     # ── LLM / 網路 ──
     {"key": "GROQ_TEXT_MODELS", "label": "Groq 模型梯隊（空=預設）", "type": "str", "restart": True, "optional": True},
     {"key": "WEB_BIND_HOST", "label": "控制台綁定位址", "type": "choice",
