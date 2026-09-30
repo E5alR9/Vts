@@ -55,3 +55,6 @@ pretrained_models/
 # vercel 轉發器（已獨立為 ../groq-router，不在本倉）
 .vercel/
 .env.local
+
+# one-shot local migration/repair backups (not for version control)
+_backup_*/

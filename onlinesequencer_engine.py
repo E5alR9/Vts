@@ -25,7 +25,8 @@ try:
 except Exception:
     pass
 
-load_dotenv(r"c:\Users\qiwai\.env")
+# 載專案根目錄的 .env（不硬編碼使用者路徑，換機器/換使用者才不會靜默載不到金鑰）
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 try:
     from tavily import TavilyClient
 except ImportError:

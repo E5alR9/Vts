@@ -667,7 +667,9 @@ async def api_get_memory(request):
             pass
     if not recent_memory:
         try:
-            mem_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "unified_memory.json")
+            # MODE 化後記憶檔名帶 mode 後綴（如 unified_memory_vtuber.json），
+            # 改用 core.memory 的常數，不要在這裡重算路徑
+            from core.memory import UNIFIED_MEMORY_FILE as mem_path
             if os.path.exists(mem_path):
                 with open(mem_path, "r", encoding="utf-8") as f:
                     recent_memory = json.load(f)

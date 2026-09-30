@@ -35,6 +35,22 @@ def use_local() -> bool:
     return (os.getenv("RAG_EMBED_BACKEND") or "local").strip().lower() != "gemini"
 
 
+def _cache_dir() -> str:
+    """本地嵌入模型快取目錄。
+
+    fastembed 預設放在 `tempfile.gettempdir()`（Windows 是 %LOCALAPPDATA%\\Temp），
+    而 Temp 會被系統定期清理 — 清掉後 snapshots/ 連結會斷，
+    導致 ONNX NoSuchFile、整條 RAG 靜默 fallback 到 Gemini（維度 512 -> 3072 對不上）。
+
+    優先序：使用者明確設定 > 專案內 models/（已列 .gitignore）
+    """
+    explicit = (os.getenv("FASTEMBED_CACHE_PATH") or "").strip()
+    if explicit:
+        return explicit
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(here, "models", "fastembed_cache")
+
+
 def _get_local_model():
     global _local_model, _local_model_name, _local_failed
     if _local_model is not None:
@@ -44,7 +60,7 @@ def _get_local_model():
     name = os.getenv("RAG_EMBED_MODEL") or DEFAULT_LOCAL_MODEL
     try:
         from fastembed import TextEmbedding
-        _local_model = TextEmbedding(model_name=name)
+        _local_model = TextEmbedding(model_name=name, cache_dir=_cache_dir())
         _local_model_name = name
         return _local_model
     except Exception as e:
@@ -63,10 +79,25 @@ def _embed_local(texts: List[str]) -> List[List[float]]:
     return [[float(x) for x in vec] for vec in model.embed(texts)]
 
 
+def _first_gemini_key() -> str:
+    """取第一把可用的 Gemini key。
+
+    .env 可能一行塞多把 key（空白 / 逗號 / 分號 / 換行分隔），
+    直接把整行當單一 key 會被 httpx 以 Illegal header value 拒絕。
+    """
+    import re
+    for env_name in ("GEMINI_API_KEYS", "GEMINI_API_KEY", "GEMINI_KEYS"):
+        raw = os.getenv(env_name) or ""
+        parts = [p.strip() for p in re.split(r"[\s,;]+", raw) if p.strip()]
+        if parts:
+            return parts[0]
+    return ""
+
+
 def _embed_gemini(texts: List[str]) -> List[List[float]]:
     from dotenv import load_dotenv
     load_dotenv()
-    key = os.getenv("GEMINI_API_KEY") or os.getenv("GEMINI_KEYS", "").split(",")[0].strip()
+    key = _first_gemini_key()
     if not key:
         raise RuntimeError("缺少 GEMINI_API_KEY，無法使用 Gemini embedding")
     from google import genai
