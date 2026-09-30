@@ -233,6 +233,20 @@ INTERACTIONS_TOOLS = [
     },
     {
         "type": "function",
+        "name": "pe.piano_to_band",
+        "description": "🎹→🎺 鋼琴直轉樂隊：保留原演奏的全部音符/時值/力度，只按聲部分配音色（最低→貝斯、最高→主奏、其餘→鋪底）。當老爸或觀眾說『變樂隊』、『多樂器一起』、『鋼琴改小編制』時調用！不用拆人聲、不用重混。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "midi_file": {"type": "string", "description": "鋼琴演奏 .mid 路徑（midi_sheets/ 下）"},
+                "band_preset": {"type": "string", "description": "配器預設（預設 violin_lead）：piano_trio／violin_lead／guitar_band／strings／rock_band／jazz_trio／brass_band／folk_band／synth_band／orchestra"},
+                "title": {"type": "string", "description": "曲名（播報用）"}
+            },
+            "required": ["midi_file"]
+        }
+    },
+    {
+        "type": "function",
         "name": "pe.compose_and_play_original_piano",
         "description": "7L 現場自主即興作曲並親自演奏原創 88 鍵鋼琴曲。當老爸或觀眾說『妳自己寫一首歌來彈』、『現場自創一首』、『即興彈一首』、『自己創作一首鋼琴曲』、『來首妳自己原創的曲子』時調用！",
         "parameters": {
@@ -932,6 +946,13 @@ async def execute_tool_dispatch(fn_name: str, fn_args: dict, caller_target: str 
         except Exception as _e:
             _r = {"ok": False, "error": str(_e)[:150]}
         extracted_text += f" （系統回報：改譜 {_op}：{str(_r)[:300]}）"
+    elif fn_name in ["pe.piano_to_band", "piano_to_band"]:
+        pb_mf = fn_args.get("midi_file", "")
+        pb_preset = fn_args.get("band_preset", "") or "violin_lead"
+        pb_title = fn_args.get("title", "")
+        pb_res = await pe.piano_to_band(pb_mf, band_preset=pb_preset, title=pb_title or os.path.basename(pb_mf))
+        if pb_res and "[EXPRESSION:" in pb_res:
+            extracted_text += f" {pb_res}"
     elif fn_name in ["pe.play_midi_band", "play_midi_band"]:
         mf = fn_args.get("midi_file", "")
         preset = fn_args.get("band_preset", "")

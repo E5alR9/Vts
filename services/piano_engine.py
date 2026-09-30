@@ -527,26 +527,29 @@ class ClassicalPianoSoundEngine:
             return None
 
     def note_off(self, midi_num: int, channel: Optional[int] = None):
-        if self.midi_out and 21 <= midi_num <= 108:
-            try:
-                # 準確釋放該音符所屬的通道 (若無指定則釋放最舊的一個活躍通道)
-                ch_list = self.active_note_channels.get(midi_num, [])
-                if channel is not None and channel in ch_list:
-                    ch = channel
-                    ch_list.remove(ch)
-                elif ch_list:
-                    ch = ch_list.pop(0)
-                else:
-                    ch = None
+        if not self.midi_out:
+            return
+        if channel is None and not (21 <= midi_num <= 108):
+            return
+        try:
+            # 準確釋放該音符所屬的通道 (若無指定則釋放最舊的一個活躍通道)
+            ch_list = self.active_note_channels.get(midi_num, [])
+            if channel is not None and channel in ch_list:
+                ch = channel
+                ch_list.remove(ch)
+            elif ch_list:
+                ch = ch_list.pop(0)
+            else:
+                ch = None
 
-                if ch is not None:
-                    self.midi_out.note_off(midi_num, 0, ch)
-                    try:
-                        self.active_voices_fifo.remove((midi_num, ch))
-                    except ValueError:
-                        pass
-            except Exception:
-                pass
+            if ch is not None:
+                self.midi_out.note_off(midi_num, 0, ch)
+                try:
+                    self.active_voices_fifo.remove((midi_num, ch))
+                except ValueError:
+                    pass
+        except Exception:
+            pass
 
     def set_sustain_pedal(self, is_down: bool):
         """控制延音踏板 (Sustain / Damper Pedal - CC 64)"""
@@ -1200,6 +1203,133 @@ BAND_PRESETS = {
     "orchestra": {0: 48, 1: 43, 2: 60, 3: 73},  # 弦樂＋低音提琴＋法國號＋長笛＋鼓
 }
 BAND_DRUMS = {36, 38, 42, 46, 49, 51}  # kick/snare/hat/tom/crash/ride（僅供作曲自動配鼓參考）
+
+
+SHEETS_ABS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "midi_sheets")
+os.makedirs(SHEETS_ABS, exist_ok=True)
+
+
+def _resolve_sheet(path: str) -> str:
+    """檔名或路徑 → 絕對路徑（不存在回空；midi_editor 循環依賴故此處自備）。"""
+    if not path:
+        return ""
+    if os.path.exists(path):
+        return os.path.abspath(path)
+    cand = os.path.join(SHEETS_ABS, os.path.basename(path))
+    return cand if os.path.exists(cand) else ""
+
+
+def arrange_piano_to_band(midi_path: str, band_preset: str = "violin_lead", out_name: str = "") -> dict:
+    """🎼 鋼琴直轉樂隊：保留原演奏的全部音符/時值/力度，只按聲部分配音色。
+    最低音→貝斯 ch1，最高音→主奏 ch0，其餘→鋪底 ch2；鼓 ch9 原樣直通。
+    單音：>=60 主奏，45-59 鋪底，<45 貝斯。回傳 {"ok", "file", "notes", "preset"}。"""
+    import mido
+    src = _resolve_sheet(midi_path)
+    if not src:
+        return {"ok": False, "error": "檔案不存在"}
+    preset = BAND_PRESETS.get(band_preset or "", BAND_PRESETS["violin_lead"])
+    lead_prog = int(preset.get(0, 40))
+    bass_prog = int(preset.get(1, 33))
+    acc_prog = int(preset.get(2, 48))
+    try:
+        mid = mido.MidiFile(src, clip=True)
+    except Exception as e:
+        return {"ok": False, "error": f"樂譜解析失敗: {e}"[:150]}
+    # 合併流配對 note on/off（秒級，保留原 tempo map 的絕對時間）
+    pending, notes, abs_t = {}, [], 0.0
+    for msg in mid:
+        abs_t += float(msg.time or 0)
+        ch = getattr(msg, "channel", 0)
+        if msg.type == "note_on" and msg.velocity > 0:
+            pending.setdefault((ch, msg.note), []).append((abs_t, int(msg.velocity)))
+        elif msg.type == "note_off" or (msg.type == "note_on" and msg.velocity == 0):
+            q = pending.get((ch, msg.note)) or []
+            if q:
+                s, v = q.pop(0)
+                if abs_t - s >= 0.03:
+                    notes.append((s, int(msg.note), v, abs_t - s, ch))
+    if not notes:
+        return {"ok": False, "error": "樂譜無可演奏事件"}
+    # 按 60ms 簇分配聲部
+    notes.sort(key=lambda n: n[0])
+    assigned = []  # (start, note, vel, dur, new_ch)
+    i, n = 0, len(notes)
+    while i < n:
+        j = i
+        while j + 1 < n and notes[j + 1][0] - notes[i][0] <= 0.06:
+            j += 1
+        cluster = notes[i:j + 1]
+        drums = [x for x in cluster if x[4] == 9]
+        pitched = sorted([x for x in cluster if x[4] != 9], key=lambda x: x[1])
+        for x in drums:
+            assigned.append((x[0], x[1], x[2], x[3], 9))
+        if len(pitched) >= 3:
+            lo, hi, mids = pitched[0], pitched[-1], pitched[1:-1]
+            assigned.append((lo[0], lo[1], lo[2], lo[3], 1))
+            assigned.append((hi[0], hi[1], hi[2], hi[3], 0))
+            for x in mids:
+                assigned.append((x[0], x[1], x[2], x[3], 2))
+        elif len(pitched) == 2:
+            a, b = pitched
+            assigned.append((a[0], a[1], a[2], a[3], 1 if a[1] < 60 else 2))
+            assigned.append((b[0], b[1], b[2], b[3], 0))
+        elif len(pitched) == 1:
+            x = pitched[0]
+            ch = 0 if x[1] >= 60 else (2 if x[1] >= 45 else 1)
+            assigned.append((x[0], x[1], x[2], x[3], ch))
+        i = j + 1
+    # 寫新檔：固定 tempo 500000/tpb 480，tick = 秒*960（絕對時間守恆）
+    try:
+        import mido as _mido
+        out_mid = _mido.MidiFile(type=1, ticks_per_beat=480)
+        def _track(name, prog, ch):
+            t = _mido.MidiTrack()
+            t.append(_mido.MetaMessage("track_name", name=name, time=0))
+            t.append(_mido.MetaMessage("set_tempo", tempo=500000, time=0))
+            if ch != 9:
+                t.append(_mido.Message("program_change", program=prog, channel=ch, time=0))
+            return t
+        tracks = {0: _track("BandLead", lead_prog, 0), 1: _track("BandBass", bass_prog, 1),
+                  2: _track("BandPad", acc_prog, 2), 9: _track("BandDrums", 0, 9)}
+        evs = {0: [], 1: [], 2: [], 9: []}
+        for s, note, vel, dur, ch in assigned:
+            t0 = int(s * 960)
+            t1 = int((s + max(0.05, dur)) * 960)
+            evs[ch].append((t0, "note_on", note, vel))
+            evs[ch].append((t1, "note_off", note, 0))
+        for ch, lst in evs.items():
+            lst.sort(key=lambda e: (e[0], 0 if e[1] == "note_off" else 1))
+            last = 0
+            for tick, typ, nn, vv in lst:
+                tracks[ch].append(_mido.Message(typ, note=nn, velocity=vv, channel=ch,
+                                                time=max(0, tick - last)))
+                last = tick
+            out_mid.tracks.append(tracks[ch])
+        base = os.path.splitext(os.path.basename(src))[0]
+        stem = out_name.strip() if out_name and out_name.strip() else f"{base}_{band_preset}_band"
+        safe = "".join(c for c in stem if c not in '\\/:*?"<>|').strip() or "band"
+        out_path = os.path.join(SHEETS_ABS, safe + ".mid")
+        out_mid.save(out_path)
+        try:
+            save_midi_catalog_entry(os.path.splitext(os.path.basename(out_path))[0], out_path)
+        except Exception:
+            pass
+        return {"ok": True, "file": out_path, "notes": len(assigned), "preset": band_preset or "violin_lead"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:150]}
+
+
+async def piano_to_band(midi_path: str, band_preset: str = "violin_lead", title: str = "",
+                        speed: float = 1.0, session_id: int = 0) -> str:
+    """🎹→🎺 一鍵：鋼琴演奏檔直接變多樂器樂隊演奏（不拆人聲、不重混，只換音色分軌）。
+    用法：點歌拿到 .mid 後調用本函式；或觀眾說『變樂隊』『多樂器一起』時調用。"""
+    r = arrange_piano_to_band(midi_path, band_preset)
+    if not r.get("ok"):
+        return f"（系統回報：編曲失敗：{r.get('error', '')}）"
+    preset = BAND_PRESETS.get(band_preset or "", BAND_PRESETS["violin_lead"])
+    return await play_midi_band(r["file"], band_map=dict(preset),
+                                title=title or os.path.basename(r["file"]),
+                                speed=speed, session_id=session_id)
 
 
 async def play_midi_band(midi_path: str, band_map: dict = None, speed: float = 1.0,
